@@ -1,1 +1,1104 @@
+-- Загружаем сервисы
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Camera = workspace.CurrentCamera
+local HttpService = game:GetService("HttpService")
 
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Переменные состояния меню
+local menuOpen = false
+local menuGui = nil
+local isMinimized = false
+local mainFrame = nil
+local minimizedBar = nil
+
+-- Переменные эффектов
+local dozaActive = false
+local dozaGui = nil
+local dozaSound = nil
+
+local atmosphereActive = false
+local originalLighting = {}
+local originalSky = nil
+
+-- Nimb (нимб с крестом)
+local nimbActive = false
+local nimbModel = nil
+local nimbColorConnection = nil
+local nimbCharacterAddedConn = nil
+local nimbButton = nil
+
+-- Custom Fog (радужный)
+local customFogActive = false
+local originalFogColor = Lighting.FogColor
+local originalFogEnd = Lighting.FogEnd
+local fogColorOptions = {
+	["White"] = Color3.new(1,1,1),
+	["Black"] = Color3.new(0,0,0),
+	["Purple"] = Color3.fromRGB(128,0,128),
+	["Blue"] = Color3.new(0,0,1),
+	["Pink"] = Color3.fromRGB(255,192,203)
+}
+local fogColorName = nil
+
+-- M1 Effect (свечение)
+local m1EffectActive = false
+local m1EffectConn = nil
+local currentCircle = nil
+local circleStartTime = 0
+
+-- Aimbot
+local aimbotActive = false
+local aimbotConnection = nil
+
+-- Crosshair (круг)
+local crosshairActive = false
+local crosshairDrawing = nil
+local crosshairColorConnection = nil
+
+-- BF Notif (двойное нажатие 3)
+local bfNotifActive = false
+local bfNotifConnection = nil
+local bfLastPressTime = 0
+local bfDoublePressInterval = 1.0 -- 1 секунда
+
+-- Система биндов
+local bindings = {}
+local bindingFuncs = {}
+local isBinding = false
+local bindingFunc = nil
+local bindingPrompt = nil
+local bindingButton = nil
+local bindingBaseText = nil
+
+-- Ссылки на кнопки (для изменения цвета при активации)
+local buttons = {
+	tp = nil,
+	atmosphere = nil,
+	nimb = nil,
+	aimbot = nil,
+	doza = nil,
+	customFog = nil,
+	m1Effect = nil,
+	crosshair = nil,
+	bfNotif = nil
+}
+
+-- Водяной знак
+local watermarkGui = nil
+local titleText = nil
+local pingFpsText = nil
+
+-- Функции для сохранения/загрузки состояний
+local configFileName = "jjs_config.json"
+
+local function saveStates()
+	local states = {
+		doza = dozaActive,
+		atmosphere = atmosphereActive,
+		nimb = nimbActive,
+		customFog = customFogActive,
+		m1Effect = m1EffectActive,
+		aimbot = aimbotActive,
+		crosshair = crosshairActive,
+		bfNotif = bfNotifActive
+	}
+	local success, json = pcall(HttpService.JSONEncode, HttpService, states)
+	if success then
+		writefile(configFileName, json)
+	end
+end
+
+local function loadStates()
+	local states = {}
+	if isfile and isfile(configFileName) then
+		local json = readfile(configFileName)
+		if json then
+			pcall(function() states = HttpService:JSONDecode(json) end)
+		end
+	end
+	return states
+end
+
+-- Применение сохранённых состояний после создания кнопок
+local function applyStates(states)
+	if states.doza then toggleDoza() end
+	if states.atmosphere then toggleAtmosphere() end
+	if states.nimb then toggleNimb() end
+	if states.customFog then toggleCustomFog() end
+	if states.m1Effect then toggleM1Effect() end
+	if states.aimbot then toggleAimbot() end
+	if states.crosshair then toggleCrosshair() end
+	if states.bfNotif then toggleBfNotif() end
+end
+
+-- Вспомогательная функция для обновления текста кнопки с биндом
+local function updateButtonText(button, baseText, func)
+	local keyCode = bindingFuncs[func]
+	if keyCode then
+		local keyName = keyCode.Name:gsub("KeyCode%.", "")
+		button.Text = baseText .. " [" .. keyName .. "]"
+	else
+		button.Text = baseText
+	end
+end
+
+-- Функция для изменения цвета кнопки при активации/деактивации
+local function setButtonActive(button, active)
+	if button then
+		button.BackgroundColor3 = active and Color3.fromRGB(128,0,128) or Color3.fromRGB(80,80,80)
+	end
+end
+
+-- Полная выгрузка скрипта
+local function unloadScript()
+	if dozaActive then toggleDoza() end
+	if atmosphereActive then toggleAtmosphere() end
+	if nimbActive then toggleNimb() end
+	if customFogActive then toggleCustomFog() end
+	if m1EffectActive then toggleM1Effect() end
+	if aimbotActive then toggleAimbot() end
+	if crosshairActive then toggleCrosshair() end
+	if bfNotifActive then toggleBfNotif() end
+	
+	if menuGui then menuGui:Destroy() end
+	if minimizedBar then minimizedBar:Destroy() end
+	if watermarkGui then watermarkGui:Destroy() end
+	
+	bindings = {}
+	bindingFuncs = {}
+end
+
+-- Приветствие
+local function showWelcome()
+	local welcomeGui = Instance.new("ScreenGui")
+	welcomeGui.Name = "WelcomeGui"
+	welcomeGui.ResetOnSpawn = false
+	welcomeGui.Parent = PlayerGui
+
+	local welcomeLabel = Instance.new("TextLabel")
+	welcomeLabel.Size = UDim2.new(0, 300, 0, 50)
+	welcomeLabel.Position = UDim2.new(0.5, -150, 0, 20)
+	welcomeLabel.BackgroundTransparency = 0.5
+	welcomeLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	welcomeLabel.Text = "welcome by muqo666"
+	welcomeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	welcomeLabel.TextScaled = true
+	welcomeLabel.Font = Enum.Font.GothamBlack
+	welcomeLabel.Parent = welcomeGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = welcomeLabel
+
+	task.wait(3)
+	local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(welcomeLabel, tweenInfo, {TextTransparency = 1, BackgroundTransparency = 1})
+	tween.Completed:Connect(function() welcomeGui:Destroy() end)
+	tween:Play()
+end
+
+-- Водяной знак (уменьшен в 1.5 раза, впритык к верху)
+local function createWatermark()
+	if watermarkGui then return end
+	watermarkGui = Instance.new("ScreenGui")
+	watermarkGui.Name = "WatermarkGUI"
+	watermarkGui.ResetOnSpawn = false
+	watermarkGui.DisplayOrder = 10
+	watermarkGui.Parent = PlayerGui
+
+	local bg = Instance.new("Frame")
+	bg.Size = UDim2.new(0, 233, 0, 67)
+	bg.Position = UDim2.new(0.5, -116, 0, 0)
+	bg.BackgroundColor3 = Color3.fromRGB(0,0,0)
+	bg.BackgroundTransparency = 0.5
+	bg.BorderSizePixel = 0
+	bg.Parent = watermarkGui
+	Instance.new("UICorner", bg).CornerRadius = UDim.new(0,10)
+
+	titleText = Instance.new("TextLabel")
+	titleText.Size = UDim2.new(1,0,0,33)
+	titleText.BackgroundTransparency = 1
+	titleText.Text = "JJS utility"
+	titleText.TextColor3 = Color3.new(1,1,1)
+	titleText.TextScaled = true
+	titleText.Font = Enum.Font.GothamBlack
+	titleText.Parent = bg
+
+	pingFpsText = Instance.new("TextLabel")
+	pingFpsText.Size = UDim2.new(1,0,0,20)
+	pingFpsText.Position = UDim2.new(0,0,0,33)
+	pingFpsText.BackgroundTransparency = 1
+	pingFpsText.Text = "Ping: 0ms | FPS: 0"
+	pingFpsText.TextColor3 = Color3.new(1,1,1)
+	pingFpsText.TextScaled = true
+	pingFpsText.Font = Enum.Font.Gotham
+	pingFpsText.Parent = bg
+
+	local colors = {
+		Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0), Color3.fromRGB(255,255,0),
+		Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130),
+		Color3.fromRGB(148,0,211)
+	}
+	local ci, ct, cs = 1, 0, 0.5
+	local nextc = colors[2]
+	RunService.RenderStepped:Connect(function(dt)
+		if not titleText then return end
+		ct = ct + dt * cs
+		if ct >= 1 then ct = 0 ci = ci % #colors + 1 nextc = colors[(ci % #colors) + 1] end
+		titleText.TextColor3 = colors[ci]:Lerp(nextc, ct)
+	end)
+
+	task.spawn(function()
+		while watermarkGui and watermarkGui.Parent do
+			local ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
+			local fps = math.floor(1 / RunService.RenderStepped:Wait())
+			pingFpsText.Text = string.format("Ping: %dms | FPS: %d", ping, fps)
+			task.wait(1)
+		end
+	end)
+end
+
+-- Nimb (нимб с крестом)
+local function createNimb(character)
+	if not character then return end
+	local head = character:FindFirstChild("Head")
+	if not head then return end
+	if nimbModel then nimbModel:Destroy() end
+
+	local model = Instance.new("Model")
+	model.Name = "Nimb"
+
+	local ring = Instance.new("Part")
+	ring.Name = "Ring"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(4, 0.2, 4)
+	ring.Material = Enum.Material.Neon
+	ring.Transparency = 0.3
+	ring.CanCollide = false
+	ring.Anchored = false
+	ring.Parent = model
+
+	local lineH = Instance.new("Part")
+	lineH.Name = "LineH"
+	lineH.Shape = Enum.PartType.Block
+	lineH.Size = Vector3.new(4, 0.2, 0.5)
+	lineH.Material = Enum.Material.Neon
+	lineH.Transparency = 0.3
+	lineH.CanCollide = false
+	lineH.Anchored = false
+	lineH.Parent = model
+
+	local lineV = Instance.new("Part")
+	lineV.Name = "LineV"
+	lineV.Shape = Enum.PartType.Block
+	lineV.Size = Vector3.new(0.5, 0.2, 4)
+	lineV.Material = Enum.Material.Neon
+	lineV.Transparency = 0.3
+	lineV.CanCollide = false
+	lineV.Anchored = false
+	lineV.Parent = model
+
+	local offset = CFrame.new(0, 1.5, 0)
+	ring.CFrame = head.CFrame * offset
+	lineH.CFrame = head.CFrame * offset
+	lineV.CFrame = head.CFrame * offset
+
+	local weldRing = Instance.new("Weld")
+	weldRing.Part0 = head
+	weldRing.Part1 = ring
+	weldRing.C0 = offset
+	weldRing.Parent = ring
+
+	local weldH = Instance.new("Weld")
+	weldH.Part0 = head
+	weldH.Part1 = lineH
+	weldH.C0 = offset
+	weldH.Parent = lineH
+
+	local weldV = Instance.new("Weld")
+	weldV.Part0 = head
+	weldV.Part1 = lineV
+	weldV.C0 = offset
+	weldV.Parent = lineV
+
+	model.Parent = character
+
+	local colors = {
+		Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0), Color3.fromRGB(255,255,0),
+		Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130),
+		Color3.fromRGB(148,0,211)
+	}
+	local ci, ct, cs = 1, 0, 0.5
+	local nextc = colors[2]
+	if nimbColorConnection then nimbColorConnection:Disconnect() end
+	nimbColorConnection = RunService.RenderStepped:Connect(function(dt)
+		if not model or not model.Parent then
+			nimbColorConnection:Disconnect()
+			return
+		end
+		ct = ct + dt * cs
+		if ct >= 1 then ct = 0 ci = ci % #colors + 1 nextc = colors[(ci % #colors) + 1] end
+		local currentColor = colors[ci]:Lerp(nextc, ct)
+		ring.Color = currentColor
+		lineH.Color = currentColor
+		lineV.Color = currentColor
+	end)
+
+	return model
+end
+
+local function toggleNimb()
+	if nimbActive then
+		if nimbModel then nimbModel:Destroy() end
+		if nimbColorConnection then nimbColorConnection:Disconnect() end
+		if nimbCharacterAddedConn then nimbCharacterAddedConn:Disconnect() end
+		nimbActive = false
+		setButtonActive(nimbButton, false)
+	else
+		local char = LocalPlayer.Character
+		if char then nimbModel = createNimb(char) end
+		nimbCharacterAddedConn = LocalPlayer.CharacterAdded:Connect(function(c)
+			if nimbActive then
+				if nimbModel then nimbModel:Destroy() end
+				nimbModel = createNimb(c)
+			end
+		end)
+		nimbActive = true
+		setButtonActive(nimbButton, true)
+	end
+	saveStates()
+end
+
+-- Atmosphere
+local function toggleAtmosphere()
+	if atmosphereActive then
+		if originalLighting.Ambient then
+			Lighting.Ambient = originalLighting.Ambient
+			Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+			Lighting.Brightness = originalLighting.Brightness
+			Lighting.ColorShift_Top = originalLighting.ColorShift_Top
+			Lighting.ColorShift_Bottom = originalLighting.ColorShift_Bottom
+		end
+		if originalSky then originalSky.Parent = Lighting end
+		atmosphereActive = false
+		setButtonActive(buttons.atmosphere, false)
+	else
+		if next(originalLighting) == nil then
+			originalLighting.Ambient = Lighting.Ambient
+			originalLighting.OutdoorAmbient = Lighting.OutdoorAmbient
+			originalLighting.Brightness = Lighting.Brightness
+			originalLighting.ColorShift_Top = Lighting.ColorShift_Top
+			originalLighting.ColorShift_Bottom = Lighting.ColorShift_Bottom
+		end
+		originalSky = Lighting:FindFirstChildOfClass("Sky")
+		if originalSky then originalSky.Parent = nil end
+		Lighting.Ambient = Color3.new(0,0,0)
+		Lighting.OutdoorAmbient = Color3.new(0,0,0)
+		Lighting.Brightness = 0
+		Lighting.ColorShift_Top = Color3.new(0,0,0)
+		Lighting.ColorShift_Bottom = Color3.new(0,0,0)
+		atmosphereActive = true
+		setButtonActive(buttons.atmosphere, true)
+	end
+	saveStates()
+end
+
+-- Doza
+local function toggleDoza()
+	if dozaActive then
+		dozaActive = false
+		if dozaGui then dozaGui:Destroy() end
+		if dozaSound then dozaSound:Stop(); dozaSound:Destroy() end
+		setButtonActive(buttons.doza, false)
+	else
+		dozaActive = true
+		dozaGui = Instance.new("ScreenGui")
+		dozaGui.Name = "DozaEffect"
+		dozaGui.ResetOnSpawn = false
+		dozaGui.Parent = PlayerGui
+
+		local frame = Instance.new("Frame", dozaGui)
+		frame.Size = UDim2.new(1,0,1,0)
+		frame.BackgroundTransparency = 0.5
+		frame.BorderSizePixel = 0
+
+		local colors = {
+			Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0), Color3.fromRGB(255,255,0),
+			Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130),
+			Color3.fromRGB(148,0,211)
+		}
+		local idx = 1
+		task.spawn(function()
+			while dozaActive and dozaGui and dozaGui.Parent do
+				frame.BackgroundColor3 = colors[idx]
+				idx = idx % #colors + 1
+				task.wait(0.1)
+			end
+		end)
+
+		dozaSound = Instance.new("Sound")
+		dozaSound.SoundId = "rbxassetid://137702431366019"
+		dozaSound.Looped = true
+		dozaSound.Volume = 0.7
+		dozaSound.Parent = workspace
+		dozaSound:Play()
+		setButtonActive(buttons.doza, true)
+	end
+	saveStates()
+end
+
+-- Custom Fog (радужный)
+local function showFogColorMenu()
+	local menu = Instance.new("ScreenGui")
+	menu.Name = "FogColorMenu"
+	menu.ResetOnSpawn = false
+	menu.Parent = PlayerGui
+
+	local frame = Instance.new("Frame", menu)
+	frame.Size = UDim2.new(0, 200, 0, #fogColorOptions * 35 + 10)
+	frame.Position = UDim2.new(0.5, -100, 0.5, -50)
+	frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+	frame.BackgroundTransparency = 0.2
+	frame.BorderSizePixel = 0
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0,8)
+
+	local list = Instance.new("UIListLayout", frame)
+	list.Padding = UDim.new(0,2)
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+	for name, color in pairs(fogColorOptions) do
+		local btn = Instance.new("TextButton", frame)
+		btn.Size = UDim2.new(0, 180, 0, 30)
+		btn.BackgroundColor3 = color
+		btn.Text = name
+		btn.TextColor3 = Color3.new(1,1,1)
+		btn.Font = Enum.Font.GothamBold
+		btn.TextScaled = true
+		Instance.new("UICorner", btn).CornerRadius = UDim.new(0,5)
+		btn.MouseButton1Click:Connect(function()
+			customFogActive = true
+			fogColorName = name
+			Lighting.FogColor = color
+			Lighting.FogEnd = 300
+			setButtonActive(buttons.customFog, true)
+			saveStates()
+			menu:Destroy()
+		end)
+	end
+
+	local cancelBtn = Instance.new("TextButton", frame)
+	cancelBtn.Size = UDim2.new(0, 180, 0, 30)
+	cancelBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+	cancelBtn.Text = "Cancel"
+	cancelBtn.TextColor3 = Color3.new(1,1,1)
+	cancelBtn.Font = Enum.Font.GothamBold
+	cancelBtn.TextScaled = true
+	Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0,5)
+	cancelBtn.MouseButton1Click:Connect(function() menu:Destroy() end)
+end
+
+local function toggleCustomFog()
+	if customFogActive then
+		Lighting.FogColor = originalFogColor
+		Lighting.FogEnd = originalFogEnd
+		customFogActive = false
+		fogColorName = nil
+		setButtonActive(buttons.customFog, false)
+		saveStates()
+	else
+		originalFogColor = Lighting.FogColor
+		originalFogEnd = Lighting.FogEnd
+		showFogColorMenu()
+	end
+end
+
+-- M1 Effect (свечение)
+local function createM1Circle()
+	if currentCircle then currentCircle:Remove() end
+	currentCircle = Drawing.new("Circle")
+	currentCircle.Thickness = 5
+	currentCircle.NumSides = 64
+	currentCircle.Radius = 0
+	currentCircle.Filled = false
+	currentCircle.Transparency = 1
+	currentCircle.Color = Color3.new(1,0,0)
+	currentCircle.Visible = true
+	local startTime = tick()
+
+	local colors = {
+		Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0), Color3.fromRGB(255,255,0),
+		Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130),
+		Color3.fromRGB(148,0,211)
+	}
+	local colorIdx = 1
+
+	local connection
+	connection = RunService.RenderStepped:Connect(function()
+		if not currentCircle then connection:Disconnect() return end
+		local elapsed = tick() - startTime
+		if elapsed > 1 then
+			currentCircle:Remove()
+			currentCircle = nil
+			connection:Disconnect()
+			return
+		end
+		local t = elapsed / 1
+		currentCircle.Radius = t * 120
+		currentCircle.Transparency = 1 - t
+		colorIdx = math.floor(t * #colors) % #colors + 1
+		currentCircle.Color = colors[colorIdx]
+		local char = LocalPlayer.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			local pos = char.HumanoidRootPart.Position
+			local v, onScreen = Camera:WorldToViewportPoint(pos)
+			if onScreen then currentCircle.Position = Vector2.new(v.X, v.Y) end
+		end
+	end)
+end
+
+local function toggleM1Effect()
+	if m1EffectActive then
+		m1EffectActive = false
+		if m1EffectConn then m1EffectConn:Disconnect() end
+		setButtonActive(buttons.m1Effect, false)
+	else
+		m1EffectActive = true
+		m1EffectConn = UserInputService.InputBegan:Connect(function(input, gp)
+			if gp then return end
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then createM1Circle() end
+		end)
+		setButtonActive(buttons.m1Effect, true)
+	end
+	saveStates()
+end
+
+-- Aimbot
+local function aimbotUpdate()
+	local myChar = LocalPlayer.Character
+	if not myChar then return end
+	local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+	if not myRoot then return end
+
+	local closest, dist = nil, math.huge
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+			local d = (p.Character.HumanoidRootPart.Position - myRoot.Position).Magnitude
+			if d < dist then dist = d; closest = p end
+		end
+	end
+	if closest and closest.Character then
+		local targetRoot = closest.Character.HumanoidRootPart
+		local lookAt = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
+		Camera.CFrame = lookAt
+	end
+end
+
+local function toggleAimbot()
+	if aimbotActive then
+		aimbotActive = false
+		if aimbotConnection then aimbotConnection:Disconnect() end
+		setButtonActive(buttons.aimbot, false)
+	else
+		aimbotActive = true
+		aimbotConnection = RunService.RenderStepped:Connect(aimbotUpdate)
+		setButtonActive(buttons.aimbot, true)
+	end
+	saveStates()
+end
+
+-- Custom Crosshair (круг)
+local function createCrosshair()
+	if crosshairDrawing then return end
+	crosshairDrawing = Drawing.new("Circle")
+	crosshairDrawing.Thickness = 2
+	crosshairDrawing.NumSides = 64
+	crosshairDrawing.Radius = 8
+	crosshairDrawing.Filled = false
+	crosshairDrawing.Color = Color3.new(1,0,0)
+	crosshairDrawing.Visible = true
+	crosshairDrawing.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+	local colors = {
+		Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0), Color3.fromRGB(255,255,0),
+		Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130),
+		Color3.fromRGB(148,0,211)
+	}
+	local ci, ct, cs = 1, 0, 1.0
+	local nextc = colors[2]
+	crosshairColorConnection = RunService.RenderStepped:Connect(function(dt)
+		if not crosshairDrawing or not crosshairActive then
+			crosshairColorConnection:Disconnect()
+			return
+		end
+		ct = ct + dt * cs
+		if ct >= 1 then
+			ct = 0
+			ci = ci % #colors + 1
+			nextc = colors[(ci % #colors) + 1]
+		end
+		crosshairDrawing.Color = colors[ci]:Lerp(nextc, ct)
+		crosshairDrawing.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+	end)
+end
+
+local function toggleCrosshair()
+	if crosshairActive then
+		crosshairActive = false
+		if crosshairDrawing then crosshairDrawing:Remove(); crosshairDrawing = nil end
+		if crosshairColorConnection then crosshairColorConnection:Disconnect() end
+		setButtonActive(buttons.crosshair, false)
+	else
+		crosshairActive = true
+		createCrosshair()
+		setButtonActive(buttons.crosshair, true)
+	end
+	saveStates()
+end
+
+-- BF Notif (двойное нажатие 3)
+local function showBfNotification()
+	local text = Drawing.new("Text")
+	text.Text = "Black Flash!"
+	text.Size = 30
+	text.Color = Color3.fromRGB(255,0,0)
+	text.Center = true
+	text.Outline = true
+	text.Visible = true
+	local viewport = Camera.ViewportSize
+	text.Position = Vector2.new(math.random(50, viewport.X - 50), math.random(50, viewport.Y - 50))
+	task.wait(1)
+	text:Remove()
+end
+
+local function onBfKeyPress(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.Three then
+		local now = tick()
+		if now - bfLastPressTime <= bfDoublePressInterval then
+			showBfNotification()
+			bfLastPressTime = 0
+		else
+			bfLastPressTime = now
+		end
+	end
+end
+
+local function toggleBfNotif()
+	if bfNotifActive then
+		bfNotifActive = false
+		if bfNotifConnection then
+			bfNotifConnection:Disconnect()
+			bfNotifConnection = nil
+		end
+		setButtonActive(buttons.bfNotif, false)
+	else
+		bfNotifActive = true
+		bfNotifConnection = UserInputService.InputBegan:Connect(onBfKeyPress)
+		setButtonActive(buttons.bfNotif, true)
+	end
+	saveStates()
+end
+
+-- TP Behind
+local function tpBehind()
+	local char = LocalPlayer.Character
+	if not char then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	local closest, dist = nil, math.huge
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+			local d = (p.Character.HumanoidRootPart.Position - root.Position).Magnitude
+			if d < dist then dist = d; closest = p end
+		end
+	end
+	if closest and closest.Character then
+		local targetRoot = closest.Character.HumanoidRootPart
+		local behind = targetRoot.Position - targetRoot.CFrame.LookVector * 5
+		root.CFrame = CFrame.new(behind, behind + targetRoot.CFrame.LookVector)
+	end
+end
+
+-- Бинд подсказка
+local function showBindingPrompt()
+	if bindingPrompt then bindingPrompt:Destroy() end
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "BindingPrompt"
+	gui.ResetOnSpawn = false
+	gui.Parent = PlayerGui
+
+	local frame = Instance.new("Frame", gui)
+	frame.Size = UDim2.new(0,300,0,100)
+	frame.Position = UDim2.new(0.5,-150,0.5,-50)
+	frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+	frame.BackgroundTransparency = 0.2
+	frame.BorderSizePixel = 0
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0,10)
+
+	local label = Instance.new("TextLabel", frame)
+	label.Size = UDim2.new(1,0,1,0)
+	label.BackgroundTransparency = 1
+	label.Text = "press any key"
+	label.TextColor3 = Color3.new(1,1,1)
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBlack
+	bindingPrompt = gui
+end
+
+local function hideBindingPrompt()
+	if bindingPrompt then bindingPrompt:Destroy(); bindingPrompt = nil end
+end
+
+local function startBindingForFunction(func, button, baseText)
+	if isBinding then hideBindingPrompt(); isBinding = false end
+	isBinding = true
+	bindingFunc = func
+	bindingButton = button
+	bindingBaseText = baseText
+	showBindingPrompt()
+end
+
+-- Сворачивание меню (красная кнопка)
+local function minimizeMenu()
+	if isMinimized then return end
+	isMinimized = true
+	mainFrame.Visible = false
+	if not minimizedBar then
+		minimizedBar = Instance.new("Frame", menuGui)
+		minimizedBar.Size = UDim2.new(0,400,0,40)
+		minimizedBar.Position = mainFrame.Position
+		minimizedBar.BackgroundColor3 = Color3.fromRGB(20,20,20)
+		minimizedBar.BorderSizePixel = 0
+		Instance.new("UICorner", minimizedBar).CornerRadius = UDim.new(0,8)
+
+		local barLabel = Instance.new("TextLabel", minimizedBar)
+		barLabel.Size = UDim2.new(1,-30,1,0)
+		barLabel.BackgroundTransparency = 1
+		barLabel.Text = "JJS Utility"
+		barLabel.TextColor3 = Color3.new(1,1,1)
+		barLabel.TextScaled = true
+		barLabel.Font = Enum.Font.GothamBlack
+
+		local restoreBtn = Instance.new("TextButton", minimizedBar)
+		restoreBtn.Size = UDim2.new(0,30,1,0)
+		restoreBtn.Position = UDim2.new(1,-30,0,0)
+		restoreBtn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+		restoreBtn.Text = "-"
+		restoreBtn.TextColor3 = Color3.new(1,1,1)
+		restoreBtn.TextScaled = true
+		restoreBtn.Font = Enum.Font.GothamBold
+		Instance.new("UICorner", restoreBtn).CornerRadius = UDim.new(0,5)
+
+		restoreBtn.MouseButton1Click:Connect(function()
+			isMinimized = false
+			minimizedBar.Visible = false
+			mainFrame.Visible = true
+		end)
+
+		local barDrag, barStart, barStartPos, barDragInput
+		minimizedBar.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				local pos = input.Position
+				local relX = pos.X - minimizedBar.AbsolutePosition.X
+				if relX < minimizedBar.AbsoluteSize.X - 30 then
+					barDrag = true
+					barStart = pos
+					barStartPos = minimizedBar.Position
+					input.Changed:Connect(function()
+						if input.UserInputState == Enum.UserInputState.End then barDrag = false end
+					end)
+				end
+			end
+		end)
+		minimizedBar.InputChanged:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseMovement then barDragInput = input end
+		end)
+		UserInputService.InputChanged:Connect(function(input)
+			if input == barDragInput and barDrag then
+				local delta = input.Position - barStart
+				minimizedBar.Position = UDim2.new(barStartPos.X.Scale, barStartPos.X.Offset + delta.X,
+				                                   barStartPos.Y.Scale, barStartPos.Y.Offset + delta.Y)
+			end
+		end)
+	else
+		minimizedBar.Visible = true
+	end
+end
+
+-- Создание главного меню
+local function openMenu()
+	if menuOpen then return end
+	menuGui = Instance.new("ScreenGui")
+	menuGui.Name = "CombatVisualsGUI"
+	menuGui.ResetOnSpawn = false
+	menuGui.Parent = PlayerGui
+
+	mainFrame = Instance.new("Frame", menuGui)
+	mainFrame.Size = UDim2.new(0,600,0,500)
+	mainFrame.Position = UDim2.new(0.5,-300,0.5,-250)
+	mainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+	mainFrame.BorderSizePixel = 0
+	mainFrame.ClipsDescendants = false
+	Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,10)
+
+	-- Кнопка свернуть (красная)
+	local topRight = Instance.new("Frame", mainFrame)
+	topRight.Size = UDim2.new(0,30,0,30)
+	topRight.Position = UDim2.new(1,-40,0,10)
+	topRight.BackgroundTransparency = 1
+	topRight.ZIndex = 10
+
+	local minBtn = Instance.new("TextButton", topRight)
+	minBtn.Size = UDim2.new(1,0,1,0)
+	minBtn.BackgroundColor3 = Color3.fromRGB(255,0,0)
+	minBtn.Text = "-"
+	minBtn.TextColor3 = Color3.new(1,1,1)
+	minBtn.TextScaled = true
+	minBtn.Font = Enum.Font.GothamBold
+	Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0,5)
+	minBtn.MouseButton1Click:Connect(minimizeMenu)
+
+	-- Левая панель (Combat)
+	local leftFrame = Instance.new("Frame", mainFrame)
+	leftFrame.Size = UDim2.new(0.5,0,1,0)
+	leftFrame.BackgroundColor3 = Color3.fromRGB(45,45,45)
+	leftFrame.BorderSizePixel = 0
+	Instance.new("UICorner", leftFrame).CornerRadius = UDim.new(0,10)
+
+	local leftTitle = Instance.new("TextLabel", leftFrame)
+	leftTitle.Size = UDim2.new(1,0,0,40)
+	leftTitle.BackgroundTransparency = 1
+	leftTitle.Text = "Combat"
+	leftTitle.TextColor3 = Color3.new(1,1,1)
+	leftTitle.TextScaled = true
+	leftTitle.Font = Enum.Font.GothamBold
+
+	local leftScroll = Instance.new("ScrollingFrame", leftFrame)
+	leftScroll.Size = UDim2.new(1,0,1,-40)
+	leftScroll.Position = UDim2.new(0,0,0,40)
+	leftScroll.BackgroundTransparency = 1
+	leftScroll.BorderSizePixel = 0
+	leftScroll.ScrollBarThickness = 8
+	leftScroll.ScrollBarImageColor3 = Color3.fromRGB(100,100,100)
+	leftScroll.CanvasSize = UDim2.new(0,0,0,0)
+
+	local leftList = Instance.new("UIListLayout", leftScroll)
+	leftList.Padding = UDim.new(0,5)
+	leftList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+	-- Правая панель (Visuals)
+	local rightFrame = Instance.new("Frame", mainFrame)
+	rightFrame.Size = UDim2.new(0.5,0,1,0)
+	rightFrame.Position = UDim2.new(0.5,0,0,0)
+	rightFrame.BackgroundColor3 = Color3.fromRGB(60,60,60)
+	rightFrame.BorderSizePixel = 0
+	Instance.new("UICorner", rightFrame).CornerRadius = UDim.new(0,10)
+
+	local rightTitle = Instance.new("TextLabel", rightFrame)
+	rightTitle.Size = UDim2.new(1,0,0,40)
+	rightTitle.BackgroundTransparency = 1
+	rightTitle.Text = "Visuals"
+	rightTitle.TextColor3 = Color3.new(1,1,1)
+	rightTitle.TextScaled = true
+	rightTitle.Font = Enum.Font.GothamBold
+
+	local rightScroll = Instance.new("ScrollingFrame", rightFrame)
+	rightScroll.Size = UDim2.new(1,0,1,-40)
+	rightScroll.Position = UDim2.new(0,0,0,40)
+	rightScroll.BackgroundTransparency = 1
+	rightScroll.BorderSizePixel = 0
+	rightScroll.ScrollBarThickness = 8
+	rightScroll.ScrollBarImageColor3 = Color3.fromRGB(100,100,100)
+	rightScroll.CanvasSize = UDim2.new(0,0,0,0)
+
+	local rightList = Instance.new("UIListLayout", rightScroll)
+	rightList.Padding = UDim.new(0,5)
+	rightList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+	-- Разделитель
+	local divider = Instance.new("Frame", mainFrame)
+	divider.Size = UDim2.new(0,2,1,0)
+	divider.Position = UDim2.new(0.5,-1,0,0)
+	divider.BackgroundColor3 = Color3.new(1,1,1)
+	divider.BorderSizePixel = 0
+
+	-- Надпись JJS Utility сверху
+	local titleLabel = Instance.new("TextLabel", mainFrame)
+	titleLabel.Size = UDim2.new(0,400,0,60)
+	titleLabel.Position = UDim2.new(0.5,-200,0,-50)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "JJS Utility"
+	titleLabel.TextColor3 = Color3.new(1,1,1)
+	titleLabel.TextScaled = true
+	titleLabel.Font = Enum.Font.GothamBlack
+
+	-- Кнопки левой панели
+	local function createLeftButton(name, func, color)
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(0,120,0,30)
+		btn.BackgroundColor3 = color or Color3.fromRGB(80,80,80)
+		btn.Text = name
+		btn.TextColor3 = Color3.new(1,1,1)
+		btn.Font = Enum.Font.Gotham
+		btn.TextScaled = true
+		Instance.new("UICorner", btn).CornerRadius = UDim.new(0,5)
+		btn.Parent = leftScroll
+		return btn
+	end
+
+	buttons.tp = createLeftButton("TP Behind", tpBehind)
+	updateButtonText(buttons.tp, "TP Behind", tpBehind)
+	buttons.tp.MouseButton1Click:Connect(tpBehind)
+	buttons.tp.MouseButton2Click:Connect(function() startBindingForFunction(tpBehind, buttons.tp, "TP Behind") end)
+
+	buttons.aimbot = createLeftButton("Aimbot", toggleAimbot)
+	updateButtonText(buttons.aimbot, "Aimbot", toggleAimbot)
+	buttons.aimbot.MouseButton1Click:Connect(toggleAimbot)
+	buttons.aimbot.MouseButton2Click:Connect(function() startBindingForFunction(toggleAimbot, buttons.aimbot, "Aimbot") end)
+
+	-- Кнопки правой панели
+	local function createRightButton(name, func, color)
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(0,120,0,30)
+		btn.BackgroundColor3 = color or Color3.fromRGB(80,80,80)
+		btn.Text = name
+		btn.TextColor3 = Color3.new(1,1,1)
+		btn.Font = Enum.Font.Gotham
+		btn.TextScaled = true
+		Instance.new("UICorner", btn).CornerRadius = UDim.new(0,5)
+		btn.Parent = rightScroll
+		return btn
+	end
+
+	buttons.doza = createRightButton("Doza", toggleDoza)
+	updateButtonText(buttons.doza, "Doza", toggleDoza)
+	buttons.doza.MouseButton1Click:Connect(toggleDoza)
+	buttons.doza.MouseButton2Click:Connect(function() startBindingForFunction(toggleDoza, buttons.doza, "Doza") end)
+
+	buttons.atmosphere = createRightButton("Atmosphere", toggleAtmosphere)
+	updateButtonText(buttons.atmosphere, "Atmosphere", toggleAtmosphere)
+	buttons.atmosphere.MouseButton1Click:Connect(toggleAtmosphere)
+	buttons.atmosphere.MouseButton2Click:Connect(function() startBindingForFunction(toggleAtmosphere, buttons.atmosphere, "Atmosphere") end)
+
+	buttons.nimb = createRightButton("nimb", toggleNimb)
+	updateButtonText(buttons.nimb, "nimb", toggleNimb)
+	buttons.nimb.MouseButton1Click:Connect(toggleNimb)
+	buttons.nimb.MouseButton2Click:Connect(function() startBindingForFunction(toggleNimb, buttons.nimb, "nimb") end)
+	nimbButton = buttons.nimb
+
+	buttons.customFog = createRightButton("Custom Fog", toggleCustomFog)
+	updateButtonText(buttons.customFog, "Custom Fog", toggleCustomFog)
+	buttons.customFog.MouseButton1Click:Connect(toggleCustomFog)
+	buttons.customFog.MouseButton2Click:Connect(function() startBindingForFunction(toggleCustomFog, buttons.customFog, "Custom Fog") end)
+
+	buttons.m1Effect = createRightButton("M1 Effect", toggleM1Effect)
+	updateButtonText(buttons.m1Effect, "M1 Effect", toggleM1Effect)
+	buttons.m1Effect.MouseButton1Click:Connect(toggleM1Effect)
+	buttons.m1Effect.MouseButton2Click:Connect(function() startBindingForFunction(toggleM1Effect, buttons.m1Effect, "M1 Effect") end)
+
+	buttons.crosshair = createRightButton("Crosshair", toggleCrosshair)
+	updateButtonText(buttons.crosshair, "Crosshair", toggleCrosshair)
+	buttons.crosshair.MouseButton1Click:Connect(toggleCrosshair)
+	buttons.crosshair.MouseButton2Click:Connect(function() startBindingForFunction(toggleCrosshair, buttons.crosshair, "Crosshair") end)
+
+	buttons.bfNotif = createRightButton("BF Notif", toggleBfNotif)
+	updateButtonText(buttons.bfNotif, "BF Notif", toggleBfNotif)
+	buttons.bfNotif.MouseButton1Click:Connect(toggleBfNotif)
+	buttons.bfNotif.MouseButton2Click:Connect(function() startBindingForFunction(toggleBfNotif, buttons.bfNotif, "BF Notif") end)
+
+	-- Устанавливаем CanvasSize
+	leftScroll.CanvasSize = UDim2.new(0,0,0,leftList.AbsoluteContentSize.Y + 10)
+	rightScroll.CanvasSize = UDim2.new(0,0,0,rightList.AbsoluteContentSize.Y + 10)
+
+	-- Перетаскивание главного окна
+	local dragging, dragStart, startPos, dragInput
+	local function updateDrag(input)
+		local delta = input.Position - dragStart
+		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X,
+		                               startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+	mainFrame.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			local pos = input.Position
+			local abs = mainFrame.AbsolutePosition
+			local relX, relY = pos.X - abs.X, pos.Y - abs.Y
+			if relY < 50 and not (relX > mainFrame.AbsoluteSize.X - 40 and relY < 40) then
+				dragging = true
+				dragStart = pos
+				startPos = mainFrame.Position
+				input.Changed:Connect(function()
+					if input.UserInputState == Enum.UserInputState.End then dragging = false end
+				end)
+			end
+		end
+	end)
+	mainFrame.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then updateDrag(input) end
+	end)
+
+	menuOpen = true
+
+	-- Загружаем сохранённые состояния
+	local states = loadStates()
+	applyStates(states)
+end
+
+-- Закрытие меню (без выгрузки)
+local function closeMenu()
+	if not menuOpen then return end
+	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local goal = {BackgroundTransparency = 1, TextTransparency = 1}
+	for _, v in ipairs(menuGui:GetDescendants()) do
+		if v:IsA("Frame") or v:IsA("TextLabel") or v:IsA("TextButton") then
+			TweenService:Create(v, tweenInfo, goal):Play()
+		end
+	end
+	task.wait(0.3)
+	menuGui:Destroy()
+	menuOpen = false
+	menuGui = nil
+	mainFrame = nil
+end
+
+-- Глобальный ввод
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if isBinding then
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			local key = input.KeyCode
+			if key ~= Enum.KeyCode.Unknown then
+				local old = bindingFuncs[bindingFunc]
+				if old then bindings[old] = nil; bindingFuncs[bindingFunc] = nil end
+				bindings[key] = bindingFunc
+				bindingFuncs[bindingFunc] = key
+				if bindingButton and bindingBaseText then
+					updateButtonText(bindingButton, bindingBaseText, bindingFunc)
+				end
+				hideBindingPrompt()
+				isBinding = false
+				bindingFunc, bindingButton, bindingBaseText = nil, nil, nil
+			end
+		end
+		return
+	end
+	if bindings[input.KeyCode] then bindings[input.KeyCode]() end
+	if input.KeyCode == Enum.KeyCode.P then
+		if menuOpen then closeMenu() else openMenu() end
+	end
+	if input.KeyCode == Enum.KeyCode.RightShift and menuOpen then closeMenu() end
+end)
+
+-- Запуск
+showWelcome()
+createWatermark()
+openMenu()
