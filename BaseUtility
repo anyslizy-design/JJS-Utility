@@ -1,1 +1,174 @@
+-- Создаём ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "XenoGUI"
+screenGui.Parent = game:GetService("CoreGui")
 
+-- Размеры окна
+local windowWidth = 750
+local windowHeight = 525
+local gap = 5
+
+-- Основное окно
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, windowWidth, 0, windowHeight)
+mainFrame.Position = UDim2.new(0.5, -windowWidth/2, 0.5, -windowHeight/2)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+-- Скругление углов окна
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 8)
+mainCorner.Parent = mainFrame
+
+-- Заголовок
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(0, windowWidth, 0, 60)
+titleLabel.Position = UDim2.new(0.5, -windowWidth/2, 0.5, -windowHeight/2 - 65)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "JJS Utility"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextScaled = true
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = screenGui
+
+-- Левая панель
+local leftPanel = Instance.new("Frame")
+leftPanel.Size = UDim2.new(0.333, -gap/2, 1, 0)
+leftPanel.Position = UDim2.new(0, 0, 0, 0)
+leftPanel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+leftPanel.BorderSizePixel = 0
+leftPanel.Parent = mainFrame
+
+local leftCorner = Instance.new("UICorner")
+leftCorner.CornerRadius = UDim.new(0, 8)
+leftCorner.Parent = leftPanel
+
+-- Правая панель
+local rightPanel = Instance.new("Frame")
+rightPanel.Size = UDim2.new(0.667, -gap/2, 1, 0)
+rightPanel.Position = UDim2.new(0.333, gap/2, 0, 0)
+rightPanel.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+rightPanel.BorderSizePixel = 0
+rightPanel.Parent = mainFrame
+
+local rightCorner = Instance.new("UICorner")
+rightCorner.CornerRadius = UDim.new(0, 8)
+rightCorner.Parent = rightPanel
+
+-- Функция обводки
+local function addOutline(frame, color)
+	local outline = Instance.new("UIStroke")
+	outline.Color = color or Color3.fromRGB(120, 120, 120)
+	outline.Thickness = 1
+	outline.Parent = frame
+end
+
+addOutline(leftPanel)
+addOutline(rightPanel)
+
+-- ========== КНОПКИ-ПЕРЕКЛЮЧАТЕЛИ (ЛЕВАЯ ПАНЕЛЬ) ==========
+local buttonSize = 80
+local buttonSpacing = 10
+local buttonPadding = 15
+local inactiveColor = Color3.fromRGB(60, 60, 60)
+local activeGradientColors = {
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(138, 43, 226))
+}
+
+-- Функция создания кнопки
+local function createButton(name, positionY, isActive)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -buttonPadding*2, 0, buttonSize)
+	btn.Position = UDim2.new(0, buttonPadding, 0, positionY)
+	btn.Text = name
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Font = Enum.Font.GothamSemibold
+	btn.TextScaled = true
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	btn.BackgroundTransparency = 1
+	btn.Parent = leftPanel
+
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 8)
+	btnCorner.Parent = btn
+
+	local gradient = Instance.new("UIGradient")
+	gradient.Parent = btn
+	gradient.Color = isActive and ColorSequence.new(activeGradientColors) or ColorSequence.new(inactiveColor)
+
+	return btn, gradient
+end
+
+-- Создаём кнопки
+local combatBtn, combatGradient = createButton("Combat", buttonPadding, true)
+local miscBtn, miscGradient = createButton("Misc", buttonPadding + buttonSize + buttonSpacing, false)
+
+-- ========== КОНТЕНТ В ПРАВОЙ ПАНЕЛИ ==========
+-- Создаём два фрейма, которые будут переключаться
+local combatContent = Instance.new("Frame")
+combatContent.Size = UDim2.new(1, -buttonPadding*2, 1, -buttonPadding*2)
+combatContent.Position = UDim2.new(0, buttonPadding, 0, buttonPadding)
+combatContent.BackgroundTransparency = 1
+combatContent.BorderSizePixel = 0
+combatContent.Parent = rightPanel
+
+local miscContent = Instance.new("Frame")
+miscContent.Size = UDim2.new(1, -buttonPadding*2, 1, -buttonPadding*2)
+miscContent.Position = UDim2.new(0, buttonPadding, 0, buttonPadding)
+miscContent.BackgroundTransparency = 1
+miscContent.BorderSizePixel = 0
+miscContent.Parent = rightPanel
+miscContent.Visible = false
+
+-- Пример кнопки "leave" в Combat
+local leaveButton = Instance.new("TextButton")
+leaveButton.Size = UDim2.new(1, 0, 0, 50)
+leaveButton.Position = UDim2.new(0, 0, 0, 0)
+leaveButton.Text = "leave"
+leaveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+leaveButton.Font = Enum.Font.GothamSemibold
+leaveButton.TextScaled = true
+leaveButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+leaveButton.BorderSizePixel = 0
+leaveButton.Parent = combatContent
+
+local leaveCorner = Instance.new("UICorner")
+leaveCorner.CornerRadius = UDim.new(0, 6)
+leaveCorner.Parent = leaveButton
+addOutline(leaveButton)
+
+-- Пример элемента в Misc (можно заменить на реальные опции)
+local miscLabel = Instance.new("TextLabel")
+miscLabel.Size = UDim2.new(1, 0, 0, 50)
+miscLabel.Position = UDim2.new(0, 0, 0, 0)
+miscLabel.Text = "Misc Options"
+miscLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+miscLabel.Font = Enum.Font.GothamSemibold
+miscLabel.TextScaled = true
+miscLabel.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+miscLabel.BorderSizePixel = 0
+miscLabel.Parent = miscContent
+
+local miscLabelCorner = Instance.new("UICorner")
+miscLabelCorner.CornerRadius = UDim.new(0, 6)
+miscLabelCorner.Parent = miscLabel
+addOutline(miscLabel)
+
+-- ========== ЛОГИКА ПЕРЕКЛЮЧЕНИЯ ==========
+local function setActiveButton(activeGrad, inactiveGrad, activeContent, inactiveContent)
+	activeGrad.Color = ColorSequence.new(activeGradientColors)
+	inactiveGrad.Color = ColorSequence.new(inactiveColor)
+	activeContent.Visible = true
+	inactiveContent.Visible = false
+end
+
+combatBtn.MouseButton1Click:Connect(function()
+	setActiveButton(combatGradient, miscGradient, combatContent, miscContent)
+end)
+
+miscBtn.MouseButton1Click:Connect(function()
+	setActiveButton(miscGradient, combatGradient, miscContent, combatContent)
+end)
