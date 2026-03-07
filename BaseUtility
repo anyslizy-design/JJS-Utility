@@ -1,1 +1,160 @@
+-- Загружаем сервисы
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Создаём ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CombatAnyaGUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = PlayerGui
+
+-- Основное окно (Frame) — квадратное 400x400, закруглённые углы
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 400, 0, 400)
+mainFrame.Position = UDim2.new(0.5, -200, 0.5, -200) -- центр экрана
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
+mainFrame.Parent = screenGui
+
+-- Скругление углов основного окна
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 10)
+uiCorner.Parent = mainFrame
+
+-- Левая половина (Combat)
+local leftFrame = Instance.new("Frame")
+leftFrame.Size = UDim2.new(0.5, 0, 1, 0)
+leftFrame.Position = UDim2.new(0, 0, 0, 0)
+leftFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+leftFrame.BorderSizePixel = 0
+leftFrame.Parent = mainFrame
+
+-- Скругление левого фрейма
+local leftCorner = Instance.new("UICorner")
+leftCorner.CornerRadius = UDim.new(0, 10)
+leftCorner.Parent = leftFrame
+
+-- Текст "Combat" в левой половине
+local combatLabel = Instance.new("TextLabel")
+combatLabel.Size = UDim2.new(1, 0, 0, 50)
+combatLabel.Position = UDim2.new(0, 0, 0.5, -25)
+combatLabel.BackgroundTransparency = 1
+combatLabel.Text = "Combat"
+combatLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+combatLabel.TextScaled = true
+combatLabel.Font = Enum.Font.GothamBold
+combatLabel.Parent = leftFrame
+
+-- Правая половина (Anya)
+local rightFrame = Instance.new("Frame")
+rightFrame.Size = UDim2.new(0.5, 0, 1, 0)
+rightFrame.Position = UDim2.new(0.5, 0, 0, 0)
+rightFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+rightFrame.BorderSizePixel = 0
+rightFrame.Parent = mainFrame
+
+-- Скругление правого фрейма
+local rightCorner = Instance.new("UICorner")
+rightCorner.CornerRadius = UDim.new(0, 10)
+rightCorner.Parent = rightFrame
+
+-- Текст "Anya" в правой половине
+local anyaLabel = Instance.new("TextLabel")
+anyaLabel.Size = UDim2.new(1, 0, 0, 50)
+anyaLabel.Position = UDim2.new(0, 0, 0.5, -25)
+anyaLabel.BackgroundTransparency = 1
+anyaLabel.Text = "Anya"
+anyaLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+anyaLabel.TextScaled = true
+anyaLabel.Font = Enum.Font.GothamBold
+anyaLabel.Parent = rightFrame
+
+-- Вертикальная разделительная линия
+local divider = Instance.new("Frame")
+divider.Size = UDim2.new(0, 2, 1, 0)
+divider.Position = UDim2.new(0.5, -1, 0, 0)
+divider.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+divider.BorderSizePixel = 0
+divider.Parent = mainFrame
+
+-- Надпись "JJS Utility" сверху окна (отдельный TextLabel, позиционирован над mainFrame)
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(0, 200, 0, 30)
+titleLabel.Position = UDim2.new(0.5, -100, 0.5, -220) -- над mainFrame
+titleLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+titleLabel.BackgroundTransparency = 0.2
+titleLabel.Text = "JJS Utility"  -- изменено на JJS Utility
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextScaled = true
+titleLabel.Font = Enum.Font.GothamBlack
+titleLabel.Parent = screenGui
+
+-- Скругление углов у titleLabel
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.Parent = titleLabel
+
+-- Функция для плавного закрытия GUI
+local function closeGUI()
+	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local goal = {BackgroundTransparency = 1, TextTransparency = 1}
+	
+	for _, v in ipairs(screenGui:GetDescendants()) do
+		if v:IsA("Frame") or v:IsA("TextLabel") then
+			local tween = TweenService:Create(v, tweenInfo, goal)
+			tween:Play()
+		end
+	end
+	
+	wait(0.3)
+	screenGui:Destroy()
+end
+
+-- Обработчик нажатия клавиши RightShift
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.RightShift then
+		closeGUI()
+	end
+end)
+
+-- Перетаскивание окна (зажатие левой кнопкой мыши на mainFrame)
+local dragging = false
+local dragInput, dragStart, startPos
+
+local function updateDrag(input)
+	local delta = input.Position - dragStart
+	mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+mainFrame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainFrame.Position
+		
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+mainFrame.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		dragInput = input
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if input == dragInput and dragging then
+		updateDrag(input)
+	end
+end)
