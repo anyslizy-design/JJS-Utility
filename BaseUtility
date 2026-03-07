@@ -1,1 +1,696 @@
+-- Загружаем сервисы
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
 
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Переменные состояния меню
+local menuOpen = false
+local menuGui = nil
+
+-- Переменные эффектов
+local dozaActive = false
+local dozaGui = nil
+
+local blackSkyActive = false
+local originalLighting = {}  -- сохраняем оригинальные настройки освещения
+local blackSkyConnections = {}  -- для хранения соединений
+
+local chinaHatActive = false
+local hatModel = nil
+local hatColorConnection = nil
+local hatCharacterAddedConn = nil
+
+-- Система биндов
+local bindings = {}          -- keyCode -> function
+local bindingFuncs = {}      -- function -> keyCode (для обратного поиска)
+local isBinding = false
+local bindingFunc = nil
+local bindingPrompt = nil
+
+-- Ссылки на кнопки для обновления текста с биндами
+local buttons = {
+	tp = nil,
+	leave = nil,
+	doza = nil,
+	blackSky = nil,
+	chinaHat = nil
+}
+
+-- Функция обновления текста кнопки с учётом бинда
+local function updateButtonText(button, baseText, func)
+	local keyCode = bindingFuncs[func]
+	if keyCode then
+		-- Получаем имя клавиши (например, "Q")
+		local keyName = keyCode.Name:gsub("KeyCode%.", "")
+		button.Text = baseText .. " [" .. keyName .. "]"
+	else
+		button.Text = baseText
+	end
+end
+
+-- Функция закрытия меню (используется для Leave)
+local function closeMenu()
+	if not menuOpen then return end
+
+	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local goal = {BackgroundTransparency = 1, TextTransparency = 1}
+
+	for _, v in ipairs(menuGui:GetDescendants()) do
+		if v:IsA("Frame") or v:IsA("TextLabel") or v:IsA("TextButton") then
+			local tween = TweenService:Create(v, tweenInfo, goal)
+			tween:Play()
+		end
+	end
+
+	task.wait(0.3)
+	menuGui:Destroy()
+	menuOpen = false
+	menuGui = nil
+end
+
+-- Показываем приветствие
+local function showWelcome()
+	local welcomeGui = Instance.new("ScreenGui")
+	welcomeGui.Name = "WelcomeGui"
+	welcomeGui.ResetOnSpawn = false
+	welcomeGui.Parent = PlayerGui
+
+	local welcomeLabel = Instance.new("TextLabel")
+	welcomeLabel.Size = UDim2.new(0, 300, 0, 50)
+	welcomeLabel.Position = UDim2.new(0.5, -150, 0, 20)
+	welcomeLabel.BackgroundTransparency = 0.5
+	welcomeLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	welcomeLabel.Text = "welcome by muqo666"
+	welcomeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	welcomeLabel.TextScaled = true
+	welcomeLabel.Font = Enum.Font.GothamBlack
+	welcomeLabel.Parent = welcomeGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = welcomeLabel
+
+	task.wait(3)
+	local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(welcomeLabel, tweenInfo, {TextTransparency = 1, BackgroundTransparency = 1})
+	tween.Completed:Connect(function()
+		welcomeGui:Destroy()
+	end)
+	tween:Play()
+end
+
+-- Функция создания радужной самурайской шляпы (с плавной сменой цветов)
+local function createChinaHat(character)
+	if not character then return end
+	local head = character:FindFirstChild("Head")
+	if not head then return end
+
+	-- Удаляем старую шляпу
+	if hatModel then
+		hatModel:Destroy()
+		hatModel = nil
+	end
+
+	-- Создаём MeshPart самурайской шляпы (ID взят из библиотеки Roblox)
+	local hat = Instance.new("MeshPart")
+	hat.MeshId = "rbxassetid://169697502"  -- Samurai Hat
+	hat.TextureID = "rbxassetid://169697502" -- та же текстура
+	hat.Material = Enum.Material.Neon
+	hat.Transparency = 0.3
+	hat.Size = Vector3.new(2, 1.5, 2)  -- подгоняем размер
+	hat.CanCollide = false
+	hat.Anchored = false
+	hat.Name = "ChinaHat"
+
+	-- Позиционируем на голове
+	hat.Position = head.Position + Vector3.new(0, 0.8, 0)  -- немного выше
+
+	-- Крепим к голове
+	local weld = Instance.new("Weld")
+	weld.Part0 = head
+	weld.Part1 = hat
+	weld.C0 = CFrame.new(0, 0.8, 0)  -- смещение
+	weld.Parent = hat
+
+	hat.Parent = character
+
+	-- Плавная смена цветов
+	local colors = {
+		Color3.fromRGB(255, 0, 0),
+		Color3.fromRGB(255, 127, 0),
+		Color3.fromRGB(255, 255, 0),
+		Color3.fromRGB(0, 255, 0),
+		Color3.fromRGB(0, 0, 255),
+		Color3.fromRGB(75, 0, 130),
+		Color3.fromRGB(148, 0, 211)
+	}
+	local index = 1
+	local nextColor = colors[2]  -- для интерполяции
+	local t = 0
+	local speed = 0.5  -- скорость перехода (чем меньше, тем плавнее)
+
+	if hatColorConnection then
+		hatColorConnection:Disconnect()
+	end
+	hatColorConnection = RunService.RenderStepped:Connect(function(dt)
+		if not hat or not hat.Parent then
+			hatColorConnection:Disconnect()
+			hatColorConnection = nil
+			return
+		end
+		-- Плавно меняем цвет от текущего к следующему
+		t = t + dt * speed
+		if t >= 1 then
+			t = 0
+			index = index % #colors + 1
+			nextColor = colors[(index % #colors) + 1]
+		end
+		local currentColor = colors[index]:Lerp(nextColor, t)
+		hat.Color = currentColor
+	end)
+
+	return hat
+end
+
+-- Функция переключения Doza (быстрое мигание полупрозрачной радугой)
+local function toggleDoza()
+	if dozaActive then
+		dozaActive = false
+		if dozaGui then
+			dozaGui:Destroy()
+			dozaGui = nil
+		end
+	else
+		dozaActive = true
+		dozaGui = Instance.new("ScreenGui")
+		dozaGui.Name = "DozaEffect"
+		dozaGui.ResetOnSpawn = false
+		dozaGui.Parent = PlayerGui
+
+		local frame = Instance.new("Frame")
+		frame.Size = UDim2.new(1, 0, 1, 0)
+		frame.Position = UDim2.new(0, 0, 0, 0)
+		frame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+		frame.BackgroundTransparency = 0.5
+		frame.BorderSizePixel = 0
+		frame.Parent = dozaGui
+
+		local colors = {
+			Color3.fromRGB(255, 0, 0),
+			Color3.fromRGB(255, 127, 0),
+			Color3.fromRGB(255, 255, 0),
+			Color3.fromRGB(0, 255, 0),
+			Color3.fromRGB(0, 0, 255),
+			Color3.fromRGB(75, 0, 130),
+			Color3.fromRGB(148, 0, 211)
+		}
+
+		local index = 1
+		task.spawn(function()
+			while dozaActive and dozaGui and dozaGui.Parent do
+				frame.BackgroundColor3 = colors[index]
+				index = index % #colors + 1
+				task.wait(0.1)
+			end
+			if dozaGui and dozaGui.Parent then
+				dozaGui:Destroy()
+				dozaGui = nil
+			end
+		end)
+	end
+end
+
+-- Функция переключения Black Sky (полная темнота)
+local function toggleBlackSky()
+	if blackSkyActive then
+		-- Восстанавливаем оригинальные настройки
+		if originalLighting.Ambient then
+			Lighting.Ambient = originalLighting.Ambient
+			Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+			Lighting.Brightness = originalLighting.Brightness
+			Lighting.ColorShift_Top = originalLighting.ColorShift_Top
+			Lighting.ColorShift_Bottom = originalLighting.ColorShift_Bottom
+		end
+		-- Удаляем чёрное небо
+		for _, conn in ipairs(blackSkyConnections) do
+			conn:Disconnect()
+		end
+		blackSkyConnections = {}
+		blackSkyActive = false
+	else
+		-- Сохраняем текущие настройки (если ещё не сохранили)
+		if next(originalLighting) == nil then
+			originalLighting.Ambient = Lighting.Ambient
+			originalLighting.OutdoorAmbient = Lighting.OutdoorAmbient
+			originalLighting.Brightness = Lighting.Brightness
+			originalLighting.ColorShift_Top = Lighting.ColorShift_Top
+			originalLighting.ColorShift_Bottom = Lighting.ColorShift_Bottom
+		end
+		-- Затемняем всё
+		Lighting.Ambient = Color3.new(0,0,0)
+		Lighting.OutdoorAmbient = Color3.new(0,0,0)
+		Lighting.Brightness = 0
+		Lighting.ColorShift_Top = Color3.new(0,0,0)
+		Lighting.ColorShift_Bottom = Color3.new(0,0,0)
+
+		-- Удаляем существующее небо и создаём чёрное
+		local sky = Lighting:FindFirstChildOfClass("Sky")
+		if sky then
+			sky:Destroy()
+		end
+		local blackSky = Instance.new("Sky")
+		blackSky.Name = "BlackSky"
+		blackSky.SkyboxBk = "rbxasset://textures/black.png"  -- попытка использовать чёрную текстуру (может не сработать)
+		blackSky.SkyboxDn = "rbxasset://textures/black.png"
+		blackSky.SkyboxFt = "rbxasset://textures/black.png"
+		blackSky.SkyboxLf = "rbxasset://textures/black.png"
+		blackSky.SkyboxRt = "rbxasset://textures/black.png"
+		blackSky.SkyboxUp = "rbxasset://textures/black.png"
+		blackSky.StarCount = 0  -- убираем звёзды
+		blackSky.MoonTextureId = ""
+		blackSky.SunTextureId = ""
+		blackSky.Parent = Lighting
+
+		-- Также можно добавить эффект полной темноты через Atmosphere
+		local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+		if atmosphere then
+			atmosphere.Density = 1
+			atmosphere.Offset = 1
+			atmosphere.Color = Color3.new(0,0,0)
+			atmosphere.Decay = Color3.new(0,0,0)
+			atmosphere.Glare = 0
+		end
+
+		blackSkyActive = true
+	end
+end
+
+-- Функция переключения China Hat
+local function toggleChinaHat()
+	if chinaHatActive then
+		if hatModel then
+			hatModel:Destroy()
+			hatModel = nil
+		end
+		if hatColorConnection then
+			hatColorConnection:Disconnect()
+			hatColorConnection = nil
+		end
+		if hatCharacterAddedConn then
+			hatCharacterAddedConn:Disconnect()
+			hatCharacterAddedConn = nil
+		end
+		chinaHatActive = false
+	else
+		local character = LocalPlayer.Character
+		if character then
+			hatModel = createChinaHat(character)
+		end
+		hatCharacterAddedConn = LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+			if chinaHatActive then
+				if hatModel then
+					hatModel:Destroy()
+					hatModel = nil
+				end
+				hatModel = createChinaHat(newCharacter)
+			end
+		end)
+		chinaHatActive = true
+	end
+end
+
+-- Функция TP Behind
+local function tpBehind()
+	local character = LocalPlayer.Character
+	if not character then return end
+	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+	if not humanoidRootPart then return end
+
+	local closestPlayer = nil
+	local closestDistance = math.huge
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+			local targetRoot = player.Character.HumanoidRootPart
+			local dist = (targetRoot.Position - humanoidRootPart.Position).Magnitude
+			if dist < closestDistance then
+				closestDistance = dist
+				closestPlayer = player
+			end
+		end
+	end
+
+	if closestPlayer and closestPlayer.Character then
+		local targetRoot = closestPlayer.Character.HumanoidRootPart
+		local lookVector = targetRoot.CFrame.LookVector
+		local behindPos = targetRoot.Position - lookVector * 5
+		humanoidRootPart.CFrame = CFrame.new(behindPos, behindPos + lookVector)
+	end
+end
+
+-- Подсказка для бинда
+local function showBindingPrompt()
+	if bindingPrompt then
+		bindingPrompt:Destroy()
+	end
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "BindingPrompt"
+	gui.ResetOnSpawn = false
+	gui.Parent = PlayerGui
+
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(0, 300, 0, 100)
+	frame.Position = UDim2.new(0.5, -150, 0.5, -50)
+	frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	frame.BackgroundTransparency = 0.2
+	frame.BorderSizePixel = 0
+	frame.Parent = gui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = frame
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "press any key"
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBlack
+	label.Parent = frame
+
+	bindingPrompt = gui
+end
+
+local function hideBindingPrompt()
+	if bindingPrompt then
+		bindingPrompt:Destroy()
+		bindingPrompt = nil
+	end
+end
+
+local function startBindingForFunction(func, button, baseText)
+	if isBinding then
+		hideBindingPrompt()
+		isBinding = false
+		bindingFunc = nil
+	end
+	isBinding = true
+	bindingFunc = func
+	bindingButton = button
+	bindingBaseText = baseText
+	showBindingPrompt()
+end
+
+-- Обработчик ввода (глобальный, для биндов и назначения)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	-- Режим назначения бинда
+	if isBinding then
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			local key = input.KeyCode
+			if key ~= Enum.KeyCode.Unknown then
+				-- Удаляем старый бинд для этой функции
+				local oldKey = bindingFuncs[bindingFunc]
+				if oldKey then
+					bindings[oldKey] = nil
+					bindingFuncs[bindingFunc] = nil
+				end
+				-- Добавляем новый
+				bindings[key] = bindingFunc
+				bindingFuncs[bindingFunc] = key
+				-- Обновляем текст кнопки
+				if bindingButton and bindingBaseText then
+					updateButtonText(bindingButton, bindingBaseText, bindingFunc)
+				end
+				hideBindingPrompt()
+				isBinding = false
+				bindingFunc = nil
+				bindingButton = nil
+				bindingBaseText = nil
+			end
+		end
+		return
+	end
+
+	-- Обычные бинды
+	if bindings[input.KeyCode] then
+		bindings[input.KeyCode]()
+	end
+
+	-- Открытие/закрытие меню по P
+	if input.KeyCode == Enum.KeyCode.P then
+		if menuOpen then
+			closeMenu()
+		else
+			openMenu()
+		end
+	end
+
+	-- Закрытие по RightShift
+	if input.KeyCode == Enum.KeyCode.RightShift and menuOpen then
+		closeMenu()
+	end
+end)
+
+-- Создание меню
+local function openMenu()
+	if menuOpen then return end
+
+	menuGui = Instance.new("ScreenGui")
+	menuGui.Name = "CombatFunnyGUI"
+	menuGui.ResetOnSpawn = false
+	menuGui.Parent = PlayerGui
+
+	local mainFrame = Instance.new("Frame")
+	mainFrame.Size = UDim2.new(0, 600, 0, 400)
+	mainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
+	mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	mainFrame.BorderSizePixel = 0
+	mainFrame.ClipsDescendants = false
+	mainFrame.Parent = menuGui
+
+	local uiCorner = Instance.new("UICorner")
+	uiCorner.CornerRadius = UDim.new(0, 10)
+	uiCorner.Parent = mainFrame
+
+	-- Левая панель (Combat)
+	local leftFrame = Instance.new("Frame")
+	leftFrame.Size = UDim2.new(0.5, 0, 1, 0)
+	leftFrame.Position = UDim2.new(0, 0, 0, 0)
+	leftFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	leftFrame.BorderSizePixel = 0
+	leftFrame.Parent = mainFrame
+
+	local leftCorner = Instance.new("UICorner")
+	leftCorner.CornerRadius = UDim.new(0, 10)
+	leftCorner.Parent = leftFrame
+
+	local combatLabel = Instance.new("TextLabel")
+	combatLabel.Size = UDim2.new(1, 0, 0, 40)
+	combatLabel.Position = UDim2.new(0, 0, 0, 10)
+	combatLabel.BackgroundTransparency = 1
+	combatLabel.Text = "Combat"
+	combatLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	combatLabel.TextScaled = true
+	combatLabel.Font = Enum.Font.GothamBold
+	combatLabel.Parent = leftFrame
+
+	-- Правая панель (Funny)
+	local rightFrame = Instance.new("Frame")
+	rightFrame.Size = UDim2.new(0.5, 0, 1, 0)
+	rightFrame.Position = UDim2.new(0.5, 0, 0, 0)
+	rightFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	rightFrame.BorderSizePixel = 0
+	rightFrame.Parent = mainFrame
+
+	local rightCorner = Instance.new("UICorner")
+	rightCorner.CornerRadius = UDim.new(0, 10)
+	rightCorner.Parent = rightFrame
+
+	local funnyLabel = Instance.new("TextLabel")
+	funnyLabel.Size = UDim2.new(1, 0, 0, 40)
+	funnyLabel.Position = UDim2.new(0, 0, 0, 10)
+	funnyLabel.BackgroundTransparency = 1
+	funnyLabel.Text = "Funny"
+	funnyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	funnyLabel.TextScaled = true
+	funnyLabel.Font = Enum.Font.GothamBold
+	funnyLabel.Parent = rightFrame
+
+	-- Разделитель
+	local divider = Instance.new("Frame")
+	divider.Size = UDim2.new(0, 2, 1, 0)
+	divider.Position = UDim2.new(0.5, -1, 0, 0)
+	divider.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	divider.BorderSizePixel = 0
+	divider.Parent = mainFrame
+
+	-- Надпись JJS Utility
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(0, 400, 0, 60)
+	titleLabel.Position = UDim2.new(0.5, -200, 0, -50)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "JJS Utility"
+	titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	titleLabel.TextScaled = true
+	titleLabel.Font = Enum.Font.GothamBlack
+	titleLabel.Parent = mainFrame
+
+	-- Кнопка TP Behind (левая панель)
+	buttons.tp = Instance.new("TextButton")
+	buttons.tp.Size = UDim2.new(0, 120, 0, 30)
+	buttons.tp.Position = UDim2.new(0.5, -60, 0, 60)
+	buttons.tp.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+	buttons.tp.Text = "TP Behind"
+	buttons.tp.TextColor3 = Color3.fromRGB(255, 255, 255)
+	buttons.tp.Font = Enum.Font.Gotham
+	buttons.tp.TextScaled = true
+	buttons.tp.Parent = leftFrame
+
+	local tpCorner = Instance.new("UICorner")
+	tpCorner.CornerRadius = UDim.new(0, 5)
+	tpCorner.Parent = buttons.tp
+
+	updateButtonText(buttons.tp, "TP Behind", tpBehind)
+
+	buttons.tp.MouseButton1Click:Connect(tpBehind)
+	buttons.tp.MouseButton2Click:Connect(function()
+		startBindingForFunction(tpBehind, buttons.tp, "TP Behind")
+	end)
+
+	-- Кнопка Leave (левая панель) — теперь просто закрывает меню
+	buttons.leave = Instance.new("TextButton")
+	buttons.leave.Size = UDim2.new(0, 120, 0, 30)
+	buttons.leave.Position = UDim2.new(0.5, -60, 0, 100)
+	buttons.leave.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+	buttons.leave.Text = "Leave"
+	buttons.leave.TextColor3 = Color3.fromRGB(255, 255, 255)
+	buttons.leave.Font = Enum.Font.Gotham
+	buttons.leave.TextScaled = true
+	buttons.leave.Parent = leftFrame
+
+	local leaveCorner = Instance.new("UICorner")
+	leaveCorner.CornerRadius = UDim.new(0, 5)
+	leaveCorner.Parent = buttons.leave
+
+	updateButtonText(buttons.leave, "Leave", closeMenu)
+
+	buttons.leave.MouseButton1Click:Connect(closeMenu)
+	buttons.leave.MouseButton2Click:Connect(function()
+		startBindingForFunction(closeMenu, buttons.leave, "Leave")
+	end)
+
+	-- Кнопка Doza (правая панель)
+	buttons.doza = Instance.new("TextButton")
+	buttons.doza.Size = UDim2.new(0, 120, 0, 30)
+	buttons.doza.Position = UDim2.new(0.5, -60, 0, 60)
+	buttons.doza.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+	buttons.doza.Text = "Doza"
+	buttons.doza.TextColor3 = Color3.fromRGB(255, 255, 255)
+	buttons.doza.Font = Enum.Font.Gotham
+	buttons.doza.TextScaled = true
+	buttons.doza.Parent = rightFrame
+
+	local dozaCorner = Instance.new("UICorner")
+	dozaCorner.CornerRadius = UDim.new(0, 5)
+	dozaCorner.Parent = buttons.doza
+
+	updateButtonText(buttons.doza, "Doza", toggleDoza)
+
+	buttons.doza.MouseButton1Click:Connect(toggleDoza)
+	buttons.doza.MouseButton2Click:Connect(function()
+		startBindingForFunction(toggleDoza, buttons.doza, "Doza")
+	end)
+
+	-- Кнопка Black Sky (правая панель)
+	buttons.blackSky = Instance.new("TextButton")
+	buttons.blackSky.Size = UDim2.new(0, 120, 0, 30)
+	buttons.blackSky.Position = UDim2.new(0.5, -60, 0, 100)
+	buttons.blackSky.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+	buttons.blackSky.Text = "Black Sky"
+	buttons.blackSky.TextColor3 = Color3.fromRGB(255, 255, 255)
+	buttons.blackSky.Font = Enum.Font.Gotham
+	buttons.blackSky.TextScaled = true
+	buttons.blackSky.Parent = rightFrame
+
+	local blackSkyCorner = Instance.new("UICorner")
+	blackSkyCorner.CornerRadius = UDim.new(0, 5)
+	blackSkyCorner.Parent = buttons.blackSky
+
+	updateButtonText(buttons.blackSky, "Black Sky", toggleBlackSky)
+
+	buttons.blackSky.MouseButton1Click:Connect(toggleBlackSky)
+	buttons.blackSky.MouseButton2Click:Connect(function()
+		startBindingForFunction(toggleBlackSky, buttons.blackSky, "Black Sky")
+	end)
+
+	-- Кнопка China Hat (правая панель)
+	buttons.chinaHat = Instance.new("TextButton")
+	buttons.chinaHat.Size = UDim2.new(0, 120, 0, 30)
+	buttons.chinaHat.Position = UDim2.new(0.5, -60, 0, 140)
+	buttons.chinaHat.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+	buttons.chinaHat.Text = "China Hat"
+	buttons.chinaHat.TextColor3 = Color3.fromRGB(255, 255, 255)
+	buttons.chinaHat.Font = Enum.Font.Gotham
+	buttons.chinaHat.TextScaled = true
+	buttons.chinaHat.Parent = rightFrame
+
+	local chinaHatCorner = Instance.new("UICorner")
+	chinaHatCorner.CornerRadius = UDim.new(0, 5)
+	chinaHatCorner.Parent = buttons.chinaHat
+
+	updateButtonText(buttons.chinaHat, "China Hat", toggleChinaHat)
+
+	buttons.chinaHat.MouseButton1Click:Connect(toggleChinaHat)
+	buttons.chinaHat.MouseButton2Click:Connect(function()
+		startBindingForFunction(toggleChinaHat, buttons.chinaHat, "China Hat")
+	end)
+
+	-- Перетаскивание окна
+	local dragging = false
+	local dragInput, dragStart, startPos
+
+	local function updateDrag(input)
+		local delta = input.Position - dragStart
+		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+
+	mainFrame.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = mainFrame.Position
+
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+
+	mainFrame.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then
+			updateDrag(input)
+		end
+	end)
+
+	menuOpen = true
+end
+
+-- Запуск
+showWelcome()
+openMenu()  -- меню открыто сразу
