@@ -1,1 +1,324 @@
+-- Загружаем сервисы
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Переменные состояния
+local menuOpen = false
+local menuGui = nil
+
+-- Переменные для Doza
+local dozaActive = false
+local dozaGui = nil
+
+-- Показываем приветствие при запуске
+local function showWelcome()
+	local welcomeGui = Instance.new("ScreenGui")
+	welcomeGui.Name = "WelcomeGui"
+	welcomeGui.ResetOnSpawn = false
+	welcomeGui.Parent = PlayerGui
+
+	local welcomeLabel = Instance.new("TextLabel")
+	welcomeLabel.Size = UDim2.new(0, 300, 0, 50)
+	welcomeLabel.Position = UDim2.new(0.5, -150, 0, 20)
+	welcomeLabel.BackgroundTransparency = 0.5
+	welcomeLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	welcomeLabel.Text = "welcome by muqo666"
+	welcomeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	welcomeLabel.TextScaled = true
+	welcomeLabel.Font = Enum.Font.GothamBlack
+	welcomeLabel.Parent = welcomeGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = welcomeLabel
+
+	task.wait(3)
+	local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(welcomeLabel, tweenInfo, {TextTransparency = 1, BackgroundTransparency = 1})
+	tween.Completed:Connect(function()
+		welcomeGui:Destroy()
+	end)
+	tween:Play()
+end
+
+-- Функция открытия меню
+local function openMenu()
+	if menuOpen then return end
+
+	menuGui = Instance.new("ScreenGui")
+	menuGui.Name = "CombatFunnyGUI"
+	menuGui.ResetOnSpawn = false
+	menuGui.Parent = PlayerGui
+
+	local mainFrame = Instance.new("Frame")
+	mainFrame.Size = UDim2.new(0, 600, 0, 400)
+	mainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
+	mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	mainFrame.BorderSizePixel = 0
+	mainFrame.ClipsDescendants = false  -- чтобы надпись сверху выходила за границы
+	mainFrame.Parent = menuGui
+
+	local uiCorner = Instance.new("UICorner")
+	uiCorner.CornerRadius = UDim.new(0, 10)
+	uiCorner.Parent = mainFrame
+
+	-- Левая половина
+	local leftFrame = Instance.new("Frame")
+	leftFrame.Size = UDim2.new(0.5, 0, 1, 0)
+	leftFrame.Position = UDim2.new(0, 0, 0, 0)
+	leftFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	leftFrame.BorderSizePixel = 0
+	leftFrame.Parent = mainFrame
+
+	local leftCorner = Instance.new("UICorner")
+	leftCorner.CornerRadius = UDim.new(0, 10)
+	leftCorner.Parent = leftFrame
+
+	local combatLabel = Instance.new("TextLabel")
+	combatLabel.Size = UDim2.new(1, 0, 0, 40)
+	combatLabel.Position = UDim2.new(0, 0, 0, 10)
+	combatLabel.BackgroundTransparency = 1
+	combatLabel.Text = "Combat"
+	combatLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	combatLabel.TextScaled = true
+	combatLabel.Font = Enum.Font.GothamBold
+	combatLabel.Parent = leftFrame
+
+	-- Правая половина
+	local rightFrame = Instance.new("Frame")
+	rightFrame.Size = UDim2.new(0.5, 0, 1, 0)
+	rightFrame.Position = UDim2.new(0.5, 0, 0, 0)
+	rightFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	rightFrame.BorderSizePixel = 0
+	rightFrame.Parent = mainFrame
+
+	local rightCorner = Instance.new("UICorner")
+	rightCorner.CornerRadius = UDim.new(0, 10)
+	rightCorner.Parent = rightFrame
+
+	local funnyLabel = Instance.new("TextLabel")
+	funnyLabel.Size = UDim2.new(1, 0, 0, 40)
+	funnyLabel.Position = UDim2.new(0, 0, 0, 10)
+	funnyLabel.BackgroundTransparency = 1
+	funnyLabel.Text = "Funny"
+	funnyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	funnyLabel.TextScaled = true
+	funnyLabel.Font = Enum.Font.GothamBold
+	funnyLabel.Parent = rightFrame
+
+	-- Разделитель
+	local divider = Instance.new("Frame")
+	divider.Size = UDim2.new(0, 2, 1, 0)
+	divider.Position = UDim2.new(0.5, -1, 0, 0)
+	divider.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	divider.BorderSizePixel = 0
+	divider.Parent = mainFrame
+
+	-- Надпись JJS Utility (внутри mainFrame, увеличена и поднята)
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(0, 400, 0, 60)
+	titleLabel.Position = UDim2.new(0.5, -200, 0, -50)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "JJS Utility"
+	titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	titleLabel.TextScaled = true
+	titleLabel.Font = Enum.Font.GothamBlack
+	titleLabel.Parent = mainFrame
+
+	-- Функция TP Behind
+	local function tpBehind()
+		local character = LocalPlayer.Character
+		if not character then return end
+		local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+		if not humanoidRootPart then return end
+
+		local closestPlayer = nil
+		local closestDistance = math.huge
+
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+				local targetRoot = player.Character.HumanoidRootPart
+				local dist = (targetRoot.Position - humanoidRootPart.Position).Magnitude
+				if dist < closestDistance then
+					closestDistance = dist
+					closestPlayer = player
+				end
+			end
+		end
+
+		if closestPlayer and closestPlayer.Character then
+			local targetRoot = closestPlayer.Character.HumanoidRootPart
+			local lookVector = targetRoot.CFrame.LookVector
+			local behindPos = targetRoot.Position - lookVector * 5
+			humanoidRootPart.CFrame = CFrame.new(behindPos, behindPos + lookVector)
+		end
+	end
+
+	-- Кнопка TP Behind
+	local tpButton = Instance.new("TextButton")
+	tpButton.Size = UDim2.new(0, 120, 0, 30)
+	tpButton.Position = UDim2.new(0.5, -60, 0, 60)
+	tpButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+	tpButton.Text = "TP Behind"
+	tpButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	tpButton.Font = Enum.Font.Gotham
+	tpButton.TextScaled = true
+	tpButton.Parent = leftFrame
+
+	local tpCorner = Instance.new("UICorner")
+	tpCorner.CornerRadius = UDim.new(0, 5)
+	tpCorner.Parent = tpButton
+
+	tpButton.MouseButton1Click:Connect(tpBehind)
+
+	-- Кнопка Doza
+	local dozaButton = Instance.new("TextButton")
+	dozaButton.Size = UDim2.new(0, 120, 0, 30)
+	dozaButton.Position = UDim2.new(0.5, -60, 0, 60)
+	dozaButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+	dozaButton.Text = "Doza"
+	dozaButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	dozaButton.Font = Enum.Font.Gotham
+	dozaButton.TextScaled = true
+	dozaButton.Parent = rightFrame
+
+	local dozaCorner = Instance.new("UICorner")
+	dozaCorner.CornerRadius = UDim.new(0, 5)
+	dozaCorner.Parent = dozaButton
+
+	-- Функция эффекта Doza (быстрое мигание радугой)
+	local function toggleDoza()
+		if dozaActive then
+			-- Выключить
+			dozaActive = false
+			if dozaGui then
+				dozaGui:Destroy()
+				dozaGui = nil
+			end
+		else
+			-- Включить
+			dozaActive = true
+			dozaGui = Instance.new("ScreenGui")
+			dozaGui.Name = "DozaEffect"
+			dozaGui.ResetOnSpawn = false
+			dozaGui.Parent = PlayerGui
+
+			local frame = Instance.new("Frame")
+			frame.Size = UDim2.new(1, 0, 1, 0)
+			frame.Position = UDim2.new(0, 0, 0, 0)
+			frame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+			frame.BorderSizePixel = 0
+			frame.Parent = dozaGui
+
+			local colors = {
+				Color3.fromRGB(255, 0, 0),
+				Color3.fromRGB(255, 127, 0),
+				Color3.fromRGB(255, 255, 0),
+				Color3.fromRGB(0, 255, 0),
+				Color3.fromRGB(0, 0, 255),
+				Color3.fromRGB(75, 0, 130),
+				Color3.fromRGB(148, 0, 211)
+			}
+
+			local index = 1
+			task.spawn(function()
+				while dozaActive and dozaGui and dozaGui.Parent do
+					frame.BackgroundColor3 = colors[index]
+					index = index % #colors + 1
+					task.wait(0.1)  -- быстрое мигание
+				end
+				if dozaGui and dozaGui.Parent then
+					dozaGui:Destroy()
+					dozaGui = nil
+				end
+			end)
+		end
+	end
+
+	dozaButton.MouseButton1Click:Connect(toggleDoza)
+
+	-- Перетаскивание окна
+	local dragging = false
+	local dragInput, dragStart, startPos
+
+	local function updateDrag(input)
+		local delta = input.Position - dragStart
+		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+
+	mainFrame.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = mainFrame.Position
+
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+
+	mainFrame.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then
+			updateDrag(input)
+		end
+	end)
+
+	menuOpen = true
+end
+
+-- Функция закрытия меню
+local function closeMenu()
+	if not menuOpen then return end
+
+	-- Анимация исчезновения
+	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local goal = {BackgroundTransparency = 1, TextTransparency = 1}
+
+	for _, v in ipairs(menuGui:GetDescendants()) do
+		if v:IsA("Frame") or v:IsA("TextLabel") or v:IsA("TextButton") then
+			local tween = TweenService:Create(v, tweenInfo, goal)
+			tween:Play()
+		end
+	end
+
+	task.wait(0.3)
+	menuGui:Destroy()
+	menuOpen = false
+	menuGui = nil
+end
+
+-- Обработчик клавиш
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	-- L: открыть/закрыть меню
+	if input.KeyCode == Enum.KeyCode.L then
+		if menuOpen then
+			closeMenu()
+		else
+			openMenu()
+		end
+	end
+
+	-- RightShift: закрыть меню (если открыто)
+	if input.KeyCode == Enum.KeyCode.RightShift and menuOpen then
+		closeMenu()
+	end
+end)
+
+-- Приветствие при запуске
+showWelcome()
