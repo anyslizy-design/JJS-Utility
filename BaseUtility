@@ -1,1 +1,53 @@
+-- Создаём ScreenGui (контейнер для интерфейса)
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "XenoGUI"
+screenGui.Parent = game:GetService("CoreGui")  -- или game.Players.LocalPlayer.PlayerGui
 
+-- Размеры окна (увеличены в 1.5 раза: было 500x350 -> стало 750x525)
+local windowWidth = 750
+local windowHeight = 525
+
+-- Основное окно (прямоугольник)
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, windowWidth, 0, windowHeight)
+mainFrame.Position = UDim2.new(0.5, -windowWidth/2, 0.5, -windowHeight/2) -- центрирование
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+-- Заголовок "JJS Utility" над окном
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(0, windowWidth, 0, 30)               -- ширина как у окна, высота 30
+titleLabel.Position = UDim2.new(0.5, -windowWidth/2, 0.5, -windowHeight/2 - 35) -- над окном + отступ 5px
+titleLabel.BackgroundTransparency = 1                            -- прозрачный фон
+titleLabel.Text = "JJS Utility"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextScaled = true
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+titleLabel.TextYAlignment = Enum.TextYAlignment.Center
+titleLabel.Parent = screenGui
+
+-- Левая панель (1/3 ширины)
+local leftPanel = Instance.new("Frame")
+leftPanel.Size = UDim2.new(0.333, 0, 1, 0)                      -- ширина 33.3%
+leftPanel.Position = UDim2.new(0, 0, 0, 0)
+leftPanel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+leftPanel.BorderSizePixel = 0
+leftPanel.Parent = mainFrame
+
+-- Разделитель (тонкая полоска между панелями)
+local separator = Instance.new("Frame")
+separator.Size = UDim2.new(0, 2, 1, 0)                          -- ширина 2px, высота 100%
+separator.Position = UDim2.new(0.333, 0, 0, 0)                  -- встык к левой панели
+separator.BackgroundColor3 = Color3.fromRGB(200, 200, 200)      -- светло-серый
+separator.BorderSizePixel = 0
+separator.Parent = mainFrame
+
+-- Правая панель (2/3 ширины, со сдвигом на толщину разделителя)
+local rightPanel = Instance.new("Frame")
+rightPanel.Size = UDim2.new(0.667, -2, 1, 0)                    -- ширина 66.7% минус 2px (чтобы не вылезать)
+rightPanel.Position = UDim2.new(0.333, 2, 0, 0)                 -- начинается после левой панели + разделитель
+rightPanel.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+rightPanel.BorderSizePixel = 0
+rightPanel.Parent = mainFrame
