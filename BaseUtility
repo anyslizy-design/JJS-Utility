@@ -1,1 +1,187 @@
+-- Create ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "XenoGUI"
+screenGui.Parent = game:GetService("CoreGui")
 
+-- Window dimensions
+local windowWidth = 750
+local windowHeight = 525
+local gap = 5
+
+-- Main window frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, windowWidth, 0, windowHeight)
+mainFrame.Position = UDim2.new(0.5, -windowWidth/2, 0.5, -windowHeight/2)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+-- Rounded corners for main window
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 8)
+mainCorner.Parent = mainFrame
+
+-- Title label "JJS Utility"
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(0, windowWidth, 0, 60)
+titleLabel.Position = UDim2.new(0.5, -windowWidth/2, 0.5, -windowHeight/2 - 65)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "JJS Utility"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextScaled = true
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = screenGui
+
+-- Left panel
+local leftPanel = Instance.new("Frame")
+leftPanel.Size = UDim2.new(0.333, -gap/2, 1, 0)
+leftPanel.Position = UDim2.new(0, 0, 0, 0)
+leftPanel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+leftPanel.BorderSizePixel = 0
+leftPanel.Parent = mainFrame
+
+local leftCorner = Instance.new("UICorner")
+leftCorner.CornerRadius = UDim.new(0, 8)
+leftCorner.Parent = leftPanel
+
+-- Right panel
+local rightPanel = Instance.new("Frame")
+rightPanel.Size = UDim2.new(0.667, -gap/2, 1, 0)
+rightPanel.Position = UDim2.new(0.333, gap/2, 0, 0)
+rightPanel.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+rightPanel.BorderSizePixel = 0
+rightPanel.Parent = mainFrame
+
+local rightCorner = Instance.new("UICorner")
+rightCorner.CornerRadius = UDim.new(0, 8)
+rightCorner.Parent = rightPanel
+
+-- Helper function to add outline to frames
+local function addOutline(frame, color)
+	local outline = Instance.new("UIStroke")
+	outline.Color = color or Color3.fromRGB(120, 120, 120)
+	outline.Thickness = 1
+	outline.Parent = frame
+end
+
+addOutline(leftPanel)
+addOutline(rightPanel)
+
+-- ========== TAB BUTTONS (LEFT PANEL) ==========
+local buttonSpacing = 10
+local buttonPadding = 15
+local activeColor = Color3.fromRGB(138, 43, 226)    -- purple for active tab
+local inactiveColor = Color3.fromRGB(60, 60, 60)    -- dark gray for inactive tabs
+local textColor = Color3.fromRGB(255, 255, 255)     -- white text
+
+-- Calculate button height to fill the left panel without empty space
+local availableHeight = windowHeight - 2 * buttonPadding - 4 * buttonSpacing
+local buttonSize = availableHeight / 5  -- = 91
+
+-- List of tabs
+local tabs = {"Combat", "Misc", "World", "Player", "Config"}
+
+-- We'll store buttons and content frames in tables
+local buttons = {}
+local contentFrames = {}
+
+-- Function to create a tab button
+local function createTabButton(name, positionY)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -buttonPadding*2, 0, buttonSize)
+	btn.Position = UDim2.new(0, buttonPadding, 0, positionY)
+	btn.Text = name
+	btn.TextColor3 = textColor
+	btn.Font = Enum.Font.GothamSemibold
+	btn.TextScaled = true
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	btn.Parent = leftPanel
+
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 8)
+	btnCorner.Parent = btn
+
+	return btn
+end
+
+-- Create buttons dynamically (they will fill the entire height)
+for i, tabName in ipairs(tabs) do
+	local yPos = buttonPadding + (i-1) * (buttonSize + buttonSpacing)
+	local btn = createTabButton(tabName, yPos)
+	buttons[tabName] = btn
+end
+
+-- ========== CONTENT FRAMES (RIGHT PANEL) ==========
+-- Create a content frame for each tab (initially all invisible except the first)
+for _, tabName in ipairs(tabs) do
+	local content = Instance.new("Frame")
+	content.Size = UDim2.new(1, -buttonPadding*2, 1, -buttonPadding*2)
+	content.Position = UDim2.new(0, buttonPadding, 0, buttonPadding)
+	content.BackgroundTransparency = 1
+	content.BorderSizePixel = 0
+	content.Visible = false  -- start hidden
+	content.Parent = rightPanel
+	contentFrames[tabName] = content
+end
+
+-- Populate Combat tab content (with "leave" button)
+local combatContent = contentFrames["Combat"]
+local leaveButton = Instance.new("TextButton")
+leaveButton.Size = UDim2.new(1, 0, 0, 50)
+leaveButton.Position = UDim2.new(0, 0, 0, 0)
+leaveButton.Text = "leave"
+leaveButton.TextColor3 = textColor
+leaveButton.Font = Enum.Font.GothamSemibold
+leaveButton.TextScaled = true
+leaveButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+leaveButton.BorderSizePixel = 0
+leaveButton.Parent = combatContent
+
+local leaveCorner = Instance.new("UICorner")
+leaveCorner.CornerRadius = UDim.new(0, 6)
+leaveCorner.Parent = leaveButton
+addOutline(leaveButton)
+
+-- ========== LEAVE BUTTON FUNCTIONALITY ==========
+-- Simulate key presses: Escape, L, Enter with 100ms intervals
+local function simulateKeyPress(keyCode)
+	local vim = game:GetService("VirtualInputManager")
+	vim:SendKeyEvent(true, keyCode, false, game)
+	task.wait(0.05)  -- small hold time
+	vim:SendKeyEvent(false, keyCode, false, game)
+end
+
+leaveButton.MouseButton1Click:Connect(function()
+	simulateKeyPress(Enum.KeyCode.Escape)
+	task.wait(0.1)  -- 100ms delay
+	
+	simulateKeyPress(Enum.KeyCode.L)
+	task.wait(0.1)
+	
+	simulateKeyPress(Enum.KeyCode.Return)
+end)
+
+-- (Other tabs remain empty for now)
+
+-- ========== TAB SWITCHING LOGIC ==========
+local function setActiveTab(activeTabName)
+	-- Update button colors
+	for tabName, btn in pairs(buttons) do
+		btn.BackgroundColor3 = (tabName == activeTabName) and activeColor or inactiveColor
+	end
+	-- Update content visibility
+	for tabName, frame in pairs(contentFrames) do
+		frame.Visible = (tabName == activeTabName)
+	end
+end
+
+-- Connect button clicks
+for tabName, btn in pairs(buttons) do
+	btn.MouseButton1Click:Connect(function()
+		setActiveTab(tabName)
+	end)
+end
+
+-- Set initial active tab (Combat)
+setActiveTab("Combat")
