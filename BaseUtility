@@ -1,1 +1,130 @@
+-- Создаём ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "XenoGUI"
+screenGui.Parent = game:GetService("CoreGui")
 
+-- Размеры окна
+local windowWidth = 750
+local windowHeight = 525
+local gap = 5  -- промежуток между панелями
+
+-- Основное окно
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, windowWidth, 0, windowHeight)
+mainFrame.Position = UDim2.new(0.5, -windowWidth/2, 0.5, -windowHeight/2)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+-- Скругление углов окна
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 8)
+mainCorner.Parent = mainFrame
+
+-- Заголовок "JJS Utility"
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(0, windowWidth, 0, 60)
+titleLabel.Position = UDim2.new(0.5, -windowWidth/2, 0.5, -windowHeight/2 - 65)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "JJS Utility"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextScaled = true
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = screenGui
+
+-- Левая панель (1/3)
+local leftPanel = Instance.new("Frame")
+leftPanel.Size = UDim2.new(0.333, -gap/2, 1, 0)
+leftPanel.Position = UDim2.new(0, 0, 0, 0)
+leftPanel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+leftPanel.BorderSizePixel = 0
+leftPanel.Parent = mainFrame
+
+-- Скругление левой панели
+local leftCorner = Instance.new("UICorner")
+leftCorner.CornerRadius = UDim.new(0, 8)
+leftCorner.Parent = leftPanel
+
+-- Правая панель (2/3)
+local rightPanel = Instance.new("Frame")
+rightPanel.Size = UDim2.new(0.667, -gap/2, 1, 0)
+rightPanel.Position = UDim2.new(0.333, gap/2, 0, 0)
+rightPanel.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+rightPanel.BorderSizePixel = 0
+rightPanel.Parent = mainFrame
+
+-- Скругление правой панели
+local rightCorner = Instance.new("UICorner")
+rightCorner.CornerRadius = UDim.new(0, 8)
+rightCorner.Parent = rightPanel
+
+-- Функция добавления обводки
+local function addOutline(frame, color)
+	local outline = Instance.new("UIStroke")
+	outline.Color = color or Color3.fromRGB(120, 120, 120)
+	outline.Thickness = 1
+	outline.Parent = frame
+end
+
+-- Обводка для панелей
+addOutline(leftPanel)
+addOutline(rightPanel)
+
+-- ========== ДОБАВЛЯЕМ КНОПКИ НА ЛЕВУЮ ПАНЕЛЬ ==========
+local buttonSize = 40  -- высота кнопки
+local buttonSpacing = 10  -- отступ между кнопками
+local buttonPadding = 15  -- отступ от краёв панели
+
+-- Функция создания кнопки
+local function createButton(name, positionY, activeColor, inactiveColor, isActive)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -buttonPadding*2, 0, buttonSize)  -- ширина с отступами слева/справа
+	btn.Position = UDim2.new(0, buttonPadding, 0, positionY)
+	btn.Text = name
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Font = Enum.Font.GothamSemibold
+	btn.TextScaled = true
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false  -- отключаем стандартное свечение при наведении
+	btn.Parent = leftPanel
+	
+	-- Скругление углов кнопки
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 6)
+	btnCorner.Parent = btn
+	
+	-- Задаём цвет в зависимости от состояния
+	btn.BackgroundColor3 = isActive and activeColor or inactiveColor
+	
+	return btn
+end
+
+-- Цвета для кнопок
+local activeColor = Color3.fromRGB(60, 120, 200)   -- синий (активная)
+local inactiveColor = Color3.fromRGB(60, 60, 60)   -- тёмно-серый (неактивная)
+
+-- Создаём кнопки: Combat (активна по умолчанию), Misc (неактивна)
+local combatBtn = createButton("Combat", buttonPadding, activeColor, inactiveColor, true)
+local miscBtn = createButton("Misc", buttonPadding*2 + buttonSize, activeColor, inactiveColor, false)
+
+-- Функция переключения активной кнопки
+local function setActiveButton(activeBtn)
+	-- Сбрасываем обе кнопки на неактивный цвет
+	combatBtn.BackgroundColor3 = inactiveColor
+	miscBtn.BackgroundColor3 = inactiveColor
+	-- Устанавливаем активной нужной кнопке активный цвет
+	activeBtn.BackgroundColor3 = activeColor
+end
+
+-- Подключаем события
+combatBtn.MouseButton1Click:Connect(function()
+	setActiveButton(combatBtn)
+	-- Здесь позже добавим отображение Combat-функций на правой панели
+	print("Combat selected")
+end)
+
+miscBtn.MouseButton1Click:Connect(function()
+	setActiveButton(miscBtn)
+	-- Здесь позже добавим отображение Misc-функций
+	print("Misc selected")
+end)
