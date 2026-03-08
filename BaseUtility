@@ -1,1 +1,310 @@
+-- Загружаем сервисы
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
 
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Переменные состояния
+local isMinimized = false
+local menuGui = nil
+local mainWindow = nil
+local panel = nil
+local watermark = nil
+local bottomLabel = nil
+
+-- Константы
+local PANEL_WIDTH = 200
+local PANEL_HEIGHT = 300
+local WINDOW_SIZE = 500 -- квадратное окно
+local WATERMARK_WIDTH = 250
+local WATERMARK_HEIGHT = 70
+
+-- Функция сворачивания
+local function minimize()
+    if isMinimized then return end
+    isMinimized = true
+    if mainWindow then mainWindow.Visible = false end
+    if panel then panel.Visible = false end
+    if bottomLabel then bottomLabel.Visible = false end
+end
+
+-- Функция разворачивания
+local function restore()
+    if not isMinimized then return end
+    isMinimized = false
+    if mainWindow then mainWindow.Visible = true end
+    if panel then panel.Visible = true end
+    if bottomLabel then bottomLabel.Visible = true end
+end
+
+-- Создание водяного знака (всегда видим, клик разворачивает)
+local function createWatermark()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "Watermark"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 10
+    gui.Parent = PlayerGui
+
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(0, WATERMARK_WIDTH, 0, WATERMARK_HEIGHT)
+    bg.Position = UDim2.new(0.5, -WATERMARK_WIDTH/2, 0, 10)
+    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    bg.BackgroundTransparency = 0.4
+    bg.BorderSizePixel = 0
+    bg.Parent = gui
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 12)
+
+    -- Верхняя строка (JJS Utility)
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 35)
+    title.Position = UDim2.new(0, 0, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = "JJS Utility"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextScaled = true
+    title.Font = Enum.Font.GothamBlack
+    title.Parent = bg
+
+    -- Нижняя строка (Ping и FPS)
+    local stats = Instance.new("TextLabel")
+    stats.Size = UDim2.new(1, 0, 0, 20)
+    stats.Position = UDim2.new(0, 0, 0, 40)
+    stats.BackgroundTransparency = 1
+    stats.Text = "Ping: 0ms | FPS: 0"
+    stats.TextColor3 = Color3.fromRGB(200, 200, 200)
+    stats.TextScaled = true
+    stats.Font = Enum.Font.Gotham
+    stats.Parent = bg
+
+    -- Обновление пинга и FPS
+    task.spawn(function()
+        while gui and gui.Parent do
+            local ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
+            local fps = math.floor(1 / RunService.RenderStepped:Wait())
+            stats.Text = string.format("Ping: %dms | FPS: %d", ping, fps)
+            task.wait(1)
+        end
+    end)
+
+    -- Клик по водяному знаку разворачивает меню
+    bg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            restore()
+        end
+    end)
+
+    return gui, bg
+end
+
+-- Создание основного окна и нижней надписи
+local function createMainWindow()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "ClickGUI"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 5
+    gui.Parent = PlayerGui
+
+    -- Основное окно (квадратное)
+    local window = Instance.new("Frame")
+    window.Size = UDim2.new(0, WINDOW_SIZE, 0, WINDOW_SIZE)
+    window.Position = UDim2.new(0.5, -WINDOW_SIZE/2, 0.5, -WINDOW_SIZE/2)
+    window.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    window.BorderSizePixel = 0
+    window.Parent = gui
+    Instance.new("UICorner", window).CornerRadius = UDim.new(0, 15)
+
+    -- Нижняя надпись JJS Utility (под окном)
+    local bottom = Instance.new("TextLabel")
+    bottom.Size = UDim2.new(0, 200, 0, 40)
+    bottom.Position = UDim2.new(0.5, -100, 0.5, WINDOW_SIZE/2 + 10) -- под окном
+    bottom.BackgroundTransparency = 1
+    bottom.Text = "JJS Utility"
+    bottom.TextColor3 = Color3.new(1,1,1)
+    bottom.TextScaled = true
+    bottom.Font = Enum.Font.GothamBlack
+    bottom.Parent = gui
+
+    -- Клик по нижней надписи сворачивает
+    bottom.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            minimize()
+        end
+    end)
+
+    return gui, window, bottom
+end
+
+-- Создание перемещаемой панели с вкладками
+local function createPanel()
+    local panelGui = Instance.new("ScreenGui")
+    panelGui.Name = "TabPanel"
+    panelGui.ResetOnSpawn = false
+    panelGui.DisplayOrder = 6
+    panelGui.Parent = PlayerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, PANEL_WIDTH, 0, PANEL_HEIGHT)
+    frame.Position = UDim2.new(0, 20, 0.5, -PANEL_HEIGHT/2) -- по умолчанию слева
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel = 0
+    frame.Parent = panelGui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+    -- Заголовок для перетаскивания
+    local dragBar = Instance.new("Frame")
+    dragBar.Size = UDim2.new(1, 0, 0, 30)
+    dragBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    dragBar.BorderSizePixel = 0
+    dragBar.Parent = frame
+    Instance.new("UICorner", dragBar).CornerRadius = UDim.new(0, 12)
+
+    local dragLabel = Instance.new("TextLabel")
+    dragLabel.Size = UDim2.new(1, 0, 1, 0)
+    dragLabel.BackgroundTransparency = 1
+    dragLabel.Text = "Drag me"
+    dragLabel.TextColor3 = Color3.new(1,1,1)
+    dragLabel.TextScaled = true
+    dragLabel.Font = Enum.Font.GothamBold
+    dragLabel.Parent = dragBar
+
+    -- Контейнер для вкладок (кнопки)
+    local tabsContainer = Instance.new("Frame")
+    tabsContainer.Size = UDim2.new(1, 0, 0, 40)
+    tabsContainer.Position = UDim2.new(0, 0, 0, 35)
+    tabsContainer.BackgroundTransparency = 1
+    tabsContainer.Parent = frame
+
+    local tab1 = Instance.new("TextButton")
+    tab1.Size = UDim2.new(0.5, -2, 1, 0)
+    tab1.Position = UDim2.new(0, 0, 0, 0)
+    tab1.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    tab1.Text = "Combat"
+    tab1.TextColor3 = Color3.new(1,1,1)
+    tab1.Font = Enum.Font.GothamBold
+    tab1.TextScaled = true
+    tab1.BorderSizePixel = 0
+    tab1.Parent = tabsContainer
+    Instance.new("UICorner", tab1).CornerRadius = UDim.new(0, 8)
+
+    local tab2 = Instance.new("TextButton")
+    tab2.Size = UDim2.new(0.5, -2, 1, 0)
+    tab2.Position = UDim2.new(0.5, 2, 0, 0)
+    tab2.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    tab2.Text = "Visuals"
+    tab2.TextColor3 = Color3.new(1,1,1)
+    tab2.Font = Enum.Font.GothamBold
+    tab2.TextScaled = true
+    tab2.BorderSizePixel = 0
+    tab2.Parent = tabsContainer
+    Instance.new("UICorner", tab2).CornerRadius = UDim.new(0, 8)
+
+    -- Контейнеры для контента (пока пустые)
+    local contentCombat = Instance.new("ScrollingFrame")
+    contentCombat.Size = UDim2.new(1, 0, 1, -80)
+    contentCombat.Position = UDim2.new(0, 0, 0, 80)
+    contentCombat.BackgroundTransparency = 1
+    contentCombat.BorderSizePixel = 0
+    contentCombat.ScrollBarThickness = 6
+    contentCombat.CanvasSize = UDim2.new(0,0,0,0)
+    contentCombat.Parent = frame
+    contentCombat.Visible = true
+
+    local contentVisuals = Instance.new("ScrollingFrame")
+    contentVisuals.Size = UDim2.new(1, 0, 1, -80)
+    contentVisuals.Position = UDim2.new(0, 0, 0, 80)
+    contentVisuals.BackgroundTransparency = 1
+    contentVisuals.BorderSizePixel = 0
+    contentVisuals.ScrollBarThickness = 6
+    contentVisuals.CanvasSize = UDim2.new(0,0,0,0)
+    contentVisuals.Parent = frame
+    contentVisuals.Visible = false
+
+    -- Логика переключения вкладок
+    tab1.MouseButton1Click:Connect(function()
+        tab1.BackgroundColor3 = Color3.fromRGB(80,80,80)
+        tab2.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        contentCombat.Visible = true
+        contentVisuals.Visible = false
+    end)
+
+    tab2.MouseButton1Click:Connect(function()
+        tab1.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        tab2.BackgroundColor3 = Color3.fromRGB(80,80,80)
+        contentCombat.Visible = false
+        contentVisuals.Visible = true
+    end)
+
+    -- Перетаскивание панели с привязкой к левому/правому краю
+    local dragging = false
+    local dragStart, startPos
+
+    local function updateDrag(input)
+        local delta = input.Position - dragStart
+        local newX = startPos.X.Offset + delta.X
+        -- Ограничиваем, чтобы панель не уходила за пределы экрана
+        local viewport = Camera.ViewportSize
+        newX = math.clamp(newX, 10, viewport.X - PANEL_WIDTH - 10)
+        frame.Position = UDim2.new(0, newX, startPos.Y.Scale, startPos.Y.Offset)
+    end
+
+    local function finalizeDrag()
+        local currentX = frame.Position.X.Offset
+        local viewport = Camera.ViewportSize
+        -- Определяем ближайший край
+        local leftDist = currentX - 10
+        local rightDist = (viewport.X - PANEL_WIDTH - 10) - currentX
+        if leftDist < rightDist then
+            frame.Position = UDim2.new(0, 10, frame.Position.Y.Scale, frame.Position.Y.Offset)
+        else
+            frame.Position = UDim2.new(0, viewport.X - PANEL_WIDTH - 10, frame.Position.Y.Scale, frame.Position.Y.Offset)
+        end
+    end
+
+    dragBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    finalizeDrag()
+                end
+            end)
+        end
+    end)
+
+    dragBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            updateDrag(input)
+        end
+    end)
+
+    return panelGui, frame
+end
+
+-- Создание всех элементов
+local function buildUI()
+    watermark, _ = createWatermark()
+    local mainGui, window, bottom = createMainWindow()
+    menuGui = mainGui
+    mainWindow = window
+    bottomLabel = bottom
+    local panelGui, panelFrame = createPanel()
+    panel = panelFrame
+    -- Запоминаем GUI панели, чтобы не потерять ссылку
+    -- (panelGui не сохраняем отдельно, panelFrame уже в иерархии)
+end
+
+-- Запуск
+buildUI()
