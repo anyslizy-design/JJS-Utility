@@ -1,1 +1,1782 @@
+-- Загружаем сервисы
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local HttpService = game:GetService("HttpService")
+local Lighting = game:GetService("Lighting")
 
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Переменные состояния
+local isMinimized = false
+local menuGui = nil
+local mainWindow = nil
+local panel = nil
+local watermark = nil
+local bottomLabel = nil
+local defaultFOV = Camera.FieldOfView
+
+-- Константы
+local PANEL_WIDTH = 70
+local PANEL_HEIGHT = 360
+local WINDOW_WIDTH = 650
+local WINDOW_HEIGHT = 500
+local WATERMARK_WIDTH = 350
+local WATERMARK_HEIGHT = 40
+
+-- ------------------------------------------------------------
+-- Функции эффектов
+-- ------------------------------------------------------------
+
+-- Состояния эффектов
+local dozaActive = false
+local dozaGui = nil
+local dozaSound = nil
+
+local atmosphereActive = false
+local originalLighting = {}
+local originalSky = nil
+
+local rainbowSkyActive = false
+local rainbowSkyConnection = nil
+
+local nimbActive = false
+local nimbModel = nil
+local nimbColorConnection = nil
+local nimbCharacterAddedConn = nil
+local nimbButton = nil
+
+local customFogActive = false
+local originalFogColor = Lighting.FogColor
+local originalFogEnd = Lighting.FogEnd
+local fogColorOptions = {
+    ["White"] = Color3.new(1,1,1),
+    ["Black"] = Color3.new(0,0,0),
+    ["Purple"] = Color3.fromRGB(128,0,128),
+    ["Blue"] = Color3.new(0,0,1),
+    ["Pink"] = Color3.fromRGB(255,192,203)
+}
+local fogColorName = nil
+
+local customM1Active = false
+local customM1Conn = nil
+local customM1Circles = {}
+local customM1Colors = {
+    Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0), Color3.fromRGB(255,255,0),
+    Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130),
+    Color3.fromRGB(148,0,211)
+}
+
+local aimbotActive = false
+local aimbotConnection = nil
+
+local crosshairActive = false
+local crosshairDrawing = nil
+local crosshairColorConnection = nil
+
+local bfNotifActive = false
+local bfNotifConnection = nil
+local bfLastPressTime = 0
+local bfDoublePressInterval = 1.0
+
+-- Baby
+local babyActive = false
+local babyGui = nil
+local babyViewport = nil
+local babyDragging = false
+local babyDragStart = nil
+local babyStartPos = nil
+local babyDragInput = nil
+local babyCharacterAddedConn = nil
+
+-- Fly
+local flyActive = false
+local flyConnection = nil
+local flyBodyVelocity = nil
+
+-- Custom FOV
+local customFOVActive = false
+local originalFOV = Camera.FieldOfView
+local fovValue = 70
+
+-- Black Man
+local blackManActive = false
+local blackManOriginalColors = {}
+local blackManCharacterAddedConn = nil
+
+-- Yuji Helper
+local yujiHelperActive = false
+local yujiHelperConnections = {}
+
+-- God
+local godActive = false
+local godConnection = nil
+local godCharacterAddedConn = nil
+
+-- BHop (теперь даёт ускорение при зажатом пробеле)
+local bhopActive = false
+local bhopConnection = nil
+local originalWalkSpeed = 16
+local bhopMaxSpeed = 100
+
+-- Spin
+local spinActive = false
+local spinBodyAngular = nil
+local spinSpeed = 30  -- увеличено с 10 до 30
+
+-- Система биндов
+local bindings = {}          -- keyCode -> function
+local bindingFuncs = {}      -- function -> keyCode
+local isBinding = false
+local bindingFunc = nil
+local bindingPrompt = nil
+local bindingButton = nil
+local bindingBaseText = nil
+
+-- Таблица для хранения кнопок (для изменения цвета при активации)
+local buttons = {}
+
+-- ------------------------------------------------------------
+-- Вспомогательные функции (бинды, сохранение)
+-- ------------------------------------------------------------
+local configFileName = "jjs_config.json"
+
+local function saveStates()
+    local states = {
+        doza = dozaActive,
+        atmosphere = atmosphereActive,
+        rainbowSky = rainbowSkyActive,
+        nimb = nimbActive,
+        customFog = customFogActive,
+        customM1 = customM1Active,
+        aimbot = aimbotActive,
+        crosshair = crosshairActive,
+        bfNotif = bfNotifActive,
+        baby = babyActive,
+        fly = flyActive,
+        customFOV = customFOVActive,
+        blackMan = blackManActive,
+        yujiHelper = yujiHelperActive,
+        god = godActive,
+        bhop = bhopActive,
+        spin = spinActive,
+        fovValue = fovValue,
+        fogColorName = fogColorName,
+        bindings = {}
+    }
+    -- Сохраняем бинды (имя функции -> имя клавиши)
+    for func, keyCode in pairs(bindingFuncs) do
+        for name, btnFunc in pairs(buttons) do
+            if btnFunc == func then
+                states.bindings[name] = keyCode.Name
+                break
+            end
+        end
+    end
+    local success, json = pcall(HttpService.JSONEncode, HttpService, states)
+    if success then
+        writefile(configFileName, json)
+    end
+end
+
+local function loadStates()
+    local states = {}
+    if isfile and isfile(configFileName) then
+        local json = readfile(configFileName)
+        if json then
+            pcall(function() states = HttpService:JSONDecode(json) end)
+        end
+    end
+    return states
+end
+
+local function setButtonActive(button, active)
+    if button then
+        button.BackgroundColor3 = active and Color3.fromRGB(128,0,128) or Color3.fromRGB(60,60,60)
+    end
+end
+
+-- Подсказка для бинда (теперь внутри главного окна)
+local function showBindingPrompt()
+    if bindingPrompt then bindingPrompt:Destroy() end
+    if not menuGui then return end
+
+    bindingPrompt = Instance.new("Frame")
+    bindingPrompt.Size = UDim2.new(0, 300, 0, 100)
+    bindingPrompt.Position = UDim2.new(0.5, -150, 0.5, -50)
+    bindingPrompt.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    bindingPrompt.BackgroundTransparency = 0.2
+    bindingPrompt.BorderSizePixel = 0
+    bindingPrompt.Parent = menuGui
+    Instance.new("UICorner", bindingPrompt).CornerRadius = UDim.new(0,10)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1,0,1,0)
+    label.BackgroundTransparency = 1
+    label.Text = "press any key"
+    label.TextColor3 = Color3.new(1,1,1)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBlack
+    label.Parent = bindingPrompt
+end
+
+local function hideBindingPrompt()
+    if bindingPrompt then bindingPrompt:Destroy(); bindingPrompt = nil end
+end
+
+local function startBindingForFunction(func, button, baseText)
+    if isBinding then hideBindingPrompt(); isBinding = false end
+    isBinding = true
+    bindingFunc = func
+    bindingButton = button
+    bindingBaseText = baseText
+    showBindingPrompt()
+end
+
+local function updateButtonText(button, baseText, func)
+    local keyCode = bindingFuncs[func]
+    if keyCode then
+        local keyName = keyCode.Name:gsub("KeyCode%.", "")
+        button.Text = baseText .. " [" .. keyName .. "]"
+    else
+        button.Text = baseText
+    end
+end
+
+-- Функция имитации нажатия клавиш (оставлена для авто BF, но сам авто BF удалён)
+local function pressKey(keyCode)
+    local success = pcall(function()
+        if syn and syn.virtual_input then
+            syn.virtual_input.KeyDown(keyCode)
+            task.wait(0.05)
+            syn.virtual_input.KeyUp(keyCode)
+        elseif VirtualInputManager then
+            VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+        else
+            local mouse = LocalPlayer:GetMouse()
+            if mouse then
+                mouse:Button1Down(Vector2.new(0,0))
+                task.wait(0.05)
+                mouse:Button1Up(Vector2.new(0,0))
+            end
+            warn("Virtual input not supported, trying mouse click")
+        end
+    end)
+end
+
+-- ------------------------------------------------------------
+-- Определения функций эффектов
+-- ------------------------------------------------------------
+
+-- Nimb (с автовосстановлением при респе)
+local function createNimb(character)
+    if not character then return end
+    local head = character:FindFirstChild("Head")
+    if not head then return end
+    if nimbModel then nimbModel:Destroy() end
+
+    local model = Instance.new("Model")
+    model.Name = "Nimb"
+
+    local ring = Instance.new("Part")
+    ring.Name = "Ring"
+    ring.Shape = Enum.PartType.Cylinder
+    ring.Size = Vector3.new(4, 0.2, 4)
+    ring.Material = Enum.Material.Neon
+    ring.Transparency = 0.3
+    ring.CanCollide = false
+    ring.Anchored = false
+    ring.Parent = model
+
+    local lineH = Instance.new("Part")
+    lineH.Name = "LineH"
+    lineH.Shape = Enum.PartType.Block
+    lineH.Size = Vector3.new(4, 0.2, 0.5)
+    lineH.Material = Enum.Material.Neon
+    lineH.Transparency = 0.3
+    lineH.CanCollide = false
+    lineH.Anchored = false
+    lineH.Parent = model
+
+    local lineV = Instance.new("Part")
+    lineV.Name = "LineV"
+    lineV.Shape = Enum.PartType.Block
+    lineV.Size = Vector3.new(0.5, 0.2, 4)
+    lineV.Material = Enum.Material.Neon
+    lineV.Transparency = 0.3
+    lineV.CanCollide = false
+    lineV.Anchored = false
+    lineV.Parent = model
+
+    local offset = CFrame.new(0, 1.5, 0)
+    ring.CFrame = head.CFrame * offset
+    lineH.CFrame = head.CFrame * offset
+    lineV.CFrame = head.CFrame * offset
+
+    local weldRing = Instance.new("Weld")
+    weldRing.Part0 = head
+    weldRing.Part1 = ring
+    weldRing.C0 = offset
+    weldRing.Parent = ring
+
+    local weldH = Instance.new("Weld")
+    weldH.Part0 = head
+    weldH.Part1 = lineH
+    weldH.C0 = offset
+    weldH.Parent = lineH
+
+    local weldV = Instance.new("Weld")
+    weldV.Part0 = head
+    weldV.Part1 = lineV
+    weldV.C0 = offset
+    weldV.Parent = lineV
+
+    model.Parent = character
+
+    local colors = {
+        Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0), Color3.fromRGB(255,255,0),
+        Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130),
+        Color3.fromRGB(148,0,211)
+    }
+    local ci, ct, cs = 1, 0, 0.5
+    local nextc = colors[2]
+    if nimbColorConnection then nimbColorConnection:Disconnect() end
+    nimbColorConnection = RunService.RenderStepped:Connect(function(dt)
+        if not model or not model.Parent then
+            nimbColorConnection:Disconnect()
+            return
+        end
+        ct = ct + dt * cs
+        if ct >= 1 then ct = 0 ci = ci % #colors + 1 nextc = colors[(ci % #colors) + 1] end
+        local currentColor = colors[ci]:Lerp(nextc, ct)
+        ring.Color = currentColor
+        lineH.Color = currentColor
+        lineV.Color = currentColor
+    end)
+    return model
+end
+
+local function toggleNimb()
+    if nimbActive then
+        if nimbModel then nimbModel:Destroy() end
+        if nimbColorConnection then nimbColorConnection:Disconnect() end
+        if nimbCharacterAddedConn then nimbCharacterAddedConn:Disconnect() end
+        nimbActive = false
+        setButtonActive(buttons.nimb, false)
+    else
+        local char = LocalPlayer.Character
+        if char then nimbModel = createNimb(char) end
+        nimbCharacterAddedConn = LocalPlayer.CharacterAdded:Connect(function(c)
+            if nimbActive then
+                if nimbModel then nimbModel:Destroy() end
+                nimbModel = createNimb(c)
+            end
+        end)
+        nimbActive = true
+        setButtonActive(buttons.nimb, true)
+    end
+    saveStates()
+end
+
+-- Atmosphere
+local function toggleAtmosphere()
+    if atmosphereActive then
+        if originalLighting.Ambient then
+            Lighting.Ambient = originalLighting.Ambient
+            Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+            Lighting.Brightness = originalLighting.Brightness
+            Lighting.ColorShift_Top = originalLighting.ColorShift_Top
+            Lighting.ColorShift_Bottom = originalLighting.ColorShift_Bottom
+        end
+        if originalSky then originalSky.Parent = Lighting end
+        atmosphereActive = false
+        setButtonActive(buttons.atmosphere, false)
+    else
+        if next(originalLighting) == nil then
+            originalLighting.Ambient = Lighting.Ambient
+            originalLighting.OutdoorAmbient = Lighting.OutdoorAmbient
+            originalLighting.Brightness = Lighting.Brightness
+            originalLighting.ColorShift_Top = Lighting.ColorShift_Top
+            originalLighting.ColorShift_Bottom = Lighting.ColorShift_Bottom
+        end
+        originalSky = Lighting:FindFirstChildOfClass("Sky")
+        if originalSky then originalSky.Parent = nil end
+        Lighting.Ambient = Color3.new(0,0,0)
+        Lighting.OutdoorAmbient = Color3.new(0,0,0)
+        Lighting.Brightness = 0
+        Lighting.ColorShift_Top = Color3.new(0,0,0)
+        Lighting.ColorShift_Bottom = Color3.new(0,0,0)
+        atmosphereActive = true
+        setButtonActive(buttons.atmosphere, true)
+    end
+    saveStates()
+end
+
+-- Rainbow Sky
+local function updateRainbowSky()
+    if not rainbowSkyActive then return end
+    local t = tick() * 0.5
+    local r = math.sin(t) * 0.5 + 0.5
+    local g = math.sin(t + 2.094) * 0.5 + 0.5
+    local b = math.sin(t + 4.188) * 0.5 + 0.5
+    Lighting.Ambient = Color3.new(r, g, b)
+    Lighting.ColorShift_Top = Color3.new(r, g, b)
+    Lighting.ColorShift_Bottom = Color3.new(r*0.5, g*0.5, b*0.5)
+end
+
+local function toggleRainbowSky()
+    if rainbowSkyActive then
+        rainbowSkyActive = false
+        if rainbowSkyConnection then
+            rainbowSkyConnection:Disconnect()
+            rainbowSkyConnection = nil
+        end
+        setButtonActive(buttons.rainbowSky, false)
+    else
+        if next(originalLighting) == nil then
+            originalLighting.Ambient = Lighting.Ambient
+            originalLighting.OutdoorAmbient = Lighting.OutdoorAmbient
+            originalLighting.Brightness = Lighting.Brightness
+            originalLighting.ColorShift_Top = Lighting.ColorShift_Top
+            originalLighting.ColorShift_Bottom = Lighting.ColorShift_Bottom
+        end
+        rainbowSkyActive = true
+        rainbowSkyConnection = RunService.RenderStepped:Connect(updateRainbowSky)
+        setButtonActive(buttons.rainbowSky, true)
+    end
+    saveStates()
+end
+
+-- Doza
+local function toggleDoza()
+    if dozaActive then
+        dozaActive = false
+        if dozaGui then dozaGui:Destroy() end
+        if dozaSound then dozaSound:Stop(); dozaSound:Destroy() end
+        setButtonActive(buttons.doza, false)
+    else
+        dozaActive = true
+        dozaGui = Instance.new("ScreenGui")
+        dozaGui.Name = "DozaEffect"
+        dozaGui.ResetOnSpawn = false
+        dozaGui.Parent = PlayerGui
+
+        local frame = Instance.new("Frame", dozaGui)
+        frame.Size = UDim2.new(1,0,1,0)
+        frame.BackgroundTransparency = 0.5
+        frame.BorderSizePixel = 0
+
+        local colors = {
+            Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0), Color3.fromRGB(255,255,0),
+            Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130),
+            Color3.fromRGB(148,0,211)
+        }
+        local idx = 1
+        task.spawn(function()
+            while dozaActive and dozaGui and dozaGui.Parent do
+                frame.BackgroundColor3 = colors[idx]
+                idx = idx % #colors + 1
+                task.wait(0.1)
+            end
+        end)
+
+        dozaSound = Instance.new("Sound")
+        dozaSound.SoundId = "rbxassetid://137702431366019"
+        dozaSound.Looped = true
+        dozaSound.Volume = 0.7
+        dozaSound.Parent = workspace
+        dozaSound:Play()
+        setButtonActive(buttons.doza, true)
+    end
+    saveStates()
+end
+
+-- Custom Fog
+local function showFogColorMenu()
+    local menu = Instance.new("ScreenGui")
+    menu.Name = "FogColorMenu"
+    menu.ResetOnSpawn = false
+    menu.DisplayOrder = 7
+    menu.Parent = PlayerGui
+
+    local frame = Instance.new("Frame", menu)
+    frame.Size = UDim2.new(0, 200, 0, #fogColorOptions * 35 + 10)
+    if mainWindow then
+        local mainPos = mainWindow.AbsolutePosition
+        local mainSize = mainWindow.AbsoluteSize
+        frame.Position = UDim2.new(0, mainPos.X + mainSize.X + 10, 0.5, -frame.Size.Y.Offset/2)
+    else
+        frame.Position = UDim2.new(0.5, -100, 0.5, -50)
+    end
+    frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    frame.BackgroundTransparency = 0.2
+    frame.BorderSizePixel = 0
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0,8)
+
+    local list = Instance.new("UIListLayout", frame)
+    list.Padding = UDim.new(0,2)
+    list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+    for name, color in pairs(fogColorOptions) do
+        local btn = Instance.new("TextButton", frame)
+        btn.Size = UDim2.new(0, 180, 0, 30)
+        btn.BackgroundColor3 = color
+        btn.Text = name
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextScaled = true
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0,5)
+        btn.MouseButton1Click:Connect(function()
+            customFogActive = true
+            fogColorName = name
+            Lighting.FogColor = color
+            Lighting.FogEnd = 300
+            setButtonActive(buttons.customFog, true)
+            saveStates()
+            menu:Destroy()
+        end)
+    end
+
+    local cancelBtn = Instance.new("TextButton", frame)
+    cancelBtn.Size = UDim2.new(0, 180, 0, 30)
+    cancelBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    cancelBtn.Text = "Cancel"
+    cancelBtn.TextColor3 = Color3.new(1,1,1)
+    cancelBtn.Font = Enum.Font.GothamBold
+    cancelBtn.TextScaled = true
+    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0,5)
+    cancelBtn.MouseButton1Click:Connect(function() menu:Destroy() end)
+end
+
+local function toggleCustomFog()
+    if customFogActive then
+        Lighting.FogColor = originalFogColor
+        Lighting.FogEnd = originalFogEnd
+        customFogActive = false
+        fogColorName = nil
+        setButtonActive(buttons.customFog, false)
+        saveStates()
+    else
+        originalFogColor = Lighting.FogColor
+        originalFogEnd = Lighting.FogEnd
+        showFogColorMenu()
+    end
+end
+
+-- Custom M1
+local function createCustomM1Circle()
+    local startTime = tick()
+    local circle = Drawing.new("Circle")
+    circle.Thickness = 5
+    circle.NumSides = 64
+    circle.Radius = 0
+    circle.Filled = false
+    circle.Transparency = 1
+    circle.Color = Color3.new(1,0,0)
+    circle.Visible = true
+    table.insert(customM1Circles, {circle = circle, startTime = startTime})
+end
+
+local function updateCustomM1Circles()
+    local now = tick()
+    for i = #customM1Circles, 1, -1 do
+        local entry = customM1Circles[i]
+        local circle = entry.circle
+        local elapsed = now - entry.startTime
+        if elapsed > 1 then
+            circle:Remove()
+            table.remove(customM1Circles, i)
+        else
+            local t = elapsed / 1
+            circle.Radius = t * 120
+            circle.Transparency = 1 - t
+            local colorIdx = math.floor(t * 7) % 7 + 1
+            circle.Color = customM1Colors[colorIdx]
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local pos = char.HumanoidRootPart.Position
+                local v, onScreen = Camera:WorldToViewportPoint(pos)
+                if onScreen then
+                    circle.Position = Vector2.new(v.X, v.Y)
+                    circle.Visible = true
+                else
+                    circle.Visible = false
+                end
+            else
+                circle.Visible = false
+            end
+        end
+    end
+end
+
+local function toggleCustomM1()
+    if customM1Active then
+        customM1Active = false
+        if customM1Conn then
+            customM1Conn:Disconnect()
+            customM1Conn = nil
+        end
+        for _, entry in ipairs(customM1Circles) do
+            entry.circle:Remove()
+        end
+        customM1Circles = {}
+        setButtonActive(buttons.customM1, false)
+    else
+        customM1Active = true
+        customM1Conn = UserInputService.InputBegan:Connect(function(input, gp)
+            if gp then return end
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                createCustomM1Circle()
+            end
+        end)
+        setButtonActive(buttons.customM1, true)
+    end
+    saveStates()
+end
+
+-- Aimbot
+local function aimbotUpdate()
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    local closest, dist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local d = (p.Character.HumanoidRootPart.Position - myRoot.Position).Magnitude
+            if d < dist then dist = d; closest = p end
+        end
+    end
+    if closest and closest.Character then
+        local targetRoot = closest.Character.HumanoidRootPart
+        local lookAt = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
+        Camera.CFrame = lookAt
+    end
+end
+
+local function toggleAimbot()
+    if aimbotActive then
+        aimbotActive = false
+        if aimbotConnection then aimbotConnection:Disconnect() end
+        setButtonActive(buttons.aimbot, false)
+    else
+        aimbotActive = true
+        aimbotConnection = RunService.RenderStepped:Connect(aimbotUpdate)
+        setButtonActive(buttons.aimbot, true)
+    end
+    saveStates()
+end
+
+-- Crosshair
+local function createCrosshair()
+    if crosshairDrawing then return end
+    crosshairDrawing = Drawing.new("Circle")
+    crosshairDrawing.Thickness = 2
+    crosshairDrawing.NumSides = 64
+    crosshairDrawing.Radius = 8
+    crosshairDrawing.Filled = false
+    crosshairDrawing.Color = Color3.new(1,0,0)
+    crosshairDrawing.Visible = true
+    crosshairDrawing.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+    local colors = {
+        Color3.fromRGB(255,0,0), Color3.fromRGB(255,127,0), Color3.fromRGB(255,255,0),
+        Color3.fromRGB(0,255,0), Color3.fromRGB(0,0,255), Color3.fromRGB(75,0,130),
+        Color3.fromRGB(148,0,211)
+    }
+    local ci, ct, cs = 1, 0, 1.0
+    local nextc = colors[2]
+    crosshairColorConnection = RunService.RenderStepped:Connect(function(dt)
+        if not crosshairDrawing or not crosshairActive then
+            crosshairColorConnection:Disconnect()
+            return
+        end
+        ct = ct + dt * cs
+        if ct >= 1 then
+            ct = 0
+            ci = ci % #colors + 1
+            nextc = colors[(ci % #colors) + 1]
+        end
+        crosshairDrawing.Color = colors[ci]:Lerp(nextc, ct)
+        crosshairDrawing.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    end)
+end
+
+local function toggleCrosshair()
+    if crosshairActive then
+        crosshairActive = false
+        if crosshairDrawing then crosshairDrawing:Remove(); crosshairDrawing = nil end
+        if crosshairColorConnection then crosshairColorConnection:Disconnect() end
+        setButtonActive(buttons.crosshair, false)
+    else
+        crosshairActive = true
+        createCrosshair()
+        setButtonActive(buttons.crosshair, true)
+    end
+    saveStates()
+end
+
+-- BF Notif
+local function showBfNotification()
+    local text = Drawing.new("Text")
+    text.Text = "Black Flash!"
+    text.Size = 50
+    text.Color = Color3.fromRGB(255,0,0)
+    text.Center = true
+    text.Outline = true
+    text.OutlineColor = Color3.new(0,0,0)
+    text.Font = Drawing.Fonts.UI
+    text.Visible = true
+    local viewport = Camera.ViewportSize
+    text.Position = Vector2.new(math.random(50, viewport.X - 50), math.random(50, viewport.Y - 50))
+    task.wait(1)
+    text:Remove()
+end
+
+local function onBfKeyPress(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.Three then
+        local now = tick()
+        if now - bfLastPressTime <= bfDoublePressInterval then
+            showBfNotification()
+            bfLastPressTime = 0
+        else
+            bfLastPressTime = now
+        end
+    end
+end
+
+local function toggleBfNotif()
+    if bfNotifActive then
+        bfNotifActive = false
+        if bfNotifConnection then bfNotifConnection:Disconnect() end
+        setButtonActive(buttons.bfNotif, false)
+    else
+        bfNotifActive = true
+        bfNotifConnection = UserInputService.InputBegan:Connect(onBfKeyPress)
+        setButtonActive(buttons.bfNotif, true)
+    end
+    saveStates()
+end
+
+-- TP Behind
+local function tpBehind()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local closest, dist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local d = (p.Character.HumanoidRootPart.Position - root.Position).Magnitude
+            if d < dist then dist = d; closest = p end
+        end
+    end
+    if closest and closest.Character then
+        local targetRoot = closest.Character.HumanoidRootPart
+        local behind = targetRoot.Position - targetRoot.CFrame.LookVector * 5
+        root.CFrame = CFrame.new(behind, behind + targetRoot.CFrame.LookVector)
+    end
+end
+
+-- Baby (с автовосстановлением при респе)
+local function createBabyDisplay()
+    if babyGui then return end
+    babyGui = Instance.new("ScreenGui")
+    babyGui.Name = "BabyDisplay"
+    babyGui.ResetOnSpawn = false
+    babyGui.DisplayOrder = 8
+    babyGui.Parent = PlayerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 120, 0, 180)
+    frame.Position = UDim2.new(0, 10, 1, -190)
+    frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    frame.BackgroundTransparency = 0.2
+    frame.BorderSizePixel = 0
+    frame.Parent = babyGui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0,8)
+
+    local dragBar = Instance.new("Frame")
+    dragBar.Size = UDim2.new(1, 0, 0, 20)
+    dragBar.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    dragBar.BorderSizePixel = 0
+    dragBar.Parent = frame
+    Instance.new("UICorner", dragBar).CornerRadius = UDim.new(0,8)
+
+    local viewport = Instance.new("ViewportFrame")
+    viewport.Size = UDim2.new(1, -10, 1, -30)
+    viewport.Position = UDim2.new(0, 5, 0, 25)
+    viewport.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    viewport.CurrentCamera = Instance.new("Camera")
+    viewport.Parent = frame
+    babyViewport = viewport
+
+    local function updateModel()
+        local character = LocalPlayer.Character
+        if not character then return end
+        for _, child in ipairs(viewport:GetChildren()) do
+            child:Destroy()
+        end
+        local clone = character:Clone()
+        clone.Parent = viewport
+        clone.HumanoidRootPart.Anchored = true
+        local camera = viewport.CurrentCamera
+        camera.CFrame = CFrame.new(clone.HumanoidRootPart.Position + Vector3.new(4,2,4), clone.HumanoidRootPart.Position)
+    end
+
+    updateModel()
+    LocalPlayer.CharacterAdded:Connect(updateModel)
+
+    local function updateDrag(input)
+        local delta = input.Position - babyDragStart
+        frame.Position = UDim2.new(babyStartPos.X.Scale, babyStartPos.X.Offset + delta.X,
+                                   babyStartPos.Y.Scale, babyStartPos.Y.Offset + delta.Y)
+    end
+
+    dragBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            babyDragging = true
+            babyDragStart = input.Position
+            babyStartPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    babyDragging = false
+                end
+            end)
+        end
+    end)
+
+    dragBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            babyDragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == babyDragInput and babyDragging then
+            updateDrag(input)
+        end
+    end)
+end
+
+local function toggleBaby()
+    if babyActive then
+        babyActive = false
+        if babyGui then babyGui:Destroy(); babyGui = nil end
+        if babyCharacterAddedConn then babyCharacterAddedConn:Disconnect() end
+        setButtonActive(buttons.baby, false)
+    else
+        babyActive = true
+        createBabyDisplay()
+        babyCharacterAddedConn = LocalPlayer.CharacterAdded:Connect(function()
+            if babyActive then
+                if babyGui then babyGui:Destroy() end
+                createBabyDisplay()
+            end
+        end)
+        setButtonActive(buttons.baby, true)
+    end
+    saveStates()
+end
+
+-- Fly
+local function enableFly()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local bv = Instance.new("BodyVelocity")
+    bv.Velocity = Vector3.new(0,0,0)
+    bv.MaxForce = Vector3.new(100000,100000,100000)
+    bv.Parent = root
+    flyBodyVelocity = bv
+
+    flyConnection = RunService.Heartbeat:Connect(function()
+        if not flyActive or not char or not root or not root.Parent then
+            if flyConnection then flyConnection:Disconnect() end
+            return
+        end
+        local moveDir = Vector3.new()
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - Camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - Camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + Camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0,1,0) end
+
+        if moveDir.Magnitude > 0 then
+            bv.Velocity = moveDir.Unit * 50
+        else
+            bv.Velocity = Vector3.new(0,0,0)
+        end
+    end)
+end
+
+local function disableFly()
+    if flyBodyVelocity then flyBodyVelocity:Destroy(); flyBodyVelocity = nil end
+    if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
+end
+
+local function toggleFly()
+    if flyActive then
+        flyActive = false
+        disableFly()
+        setButtonActive(buttons.fly, false)
+    else
+        flyActive = true
+        enableFly()
+        setButtonActive(buttons.fly, true)
+    end
+    saveStates()
+end
+
+-- Custom FOV
+local function showFOVMenu()
+    local menu = Instance.new("ScreenGui")
+    menu.Name = "FOVMenu"
+    menu.ResetOnSpawn = false
+    menu.DisplayOrder = 7
+    menu.Parent = PlayerGui
+
+    local frame = Instance.new("Frame", menu)
+    frame.Size = UDim2.new(0, 200, 0, 100)
+    if mainWindow then
+        local mainPos = mainWindow.AbsolutePosition
+        local mainSize = mainWindow.AbsoluteSize
+        frame.Position = UDim2.new(0, mainPos.X + mainSize.X + 10, 0.5, -50)
+    else
+        frame.Position = UDim2.new(0.5, -100, 0.5, -50)
+    end
+    frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    frame.BackgroundTransparency = 0.2
+    frame.BorderSizePixel = 0
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0,8)
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, -10, 0, 30)
+    label.Position = UDim2.new(0, 5, 0, 5)
+    label.BackgroundTransparency = 1
+    label.Text = "FOV: " .. fovValue
+    label.TextColor3 = Color3.new(1,1,1)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+
+    local slider = Instance.new("TextBox", frame)
+    slider.Size = UDim2.new(1, -10, 0, 30)
+    slider.Position = UDim2.new(0, 5, 0, 40)
+    slider.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    slider.Text = tostring(fovValue)
+    slider.TextColor3 = Color3.new(1,1,1)
+    slider.Font = Enum.Font.Gotham
+    slider.TextScaled = true
+    Instance.new("UICorner", slider).CornerRadius = UDim.new(0,5)
+    slider.FocusLost:Connect(function()
+        local val = tonumber(slider.Text)
+        if val then
+            fovValue = math.clamp(val, 10, 120)
+            Camera.FieldOfView = fovValue
+            label.Text = "FOV: " .. fovValue
+        end
+        slider.Text = tostring(fovValue)
+    end)
+
+    local applyBtn = Instance.new("TextButton", frame)
+    applyBtn.Size = UDim2.new(1, -10, 0, 30)
+    applyBtn.Position = UDim2.new(0, 5, 0, 75)
+    applyBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+    applyBtn.Text = "Apply"
+    applyBtn.TextColor3 = Color3.new(1,1,1)
+    applyBtn.Font = Enum.Font.GothamBold
+    applyBtn.TextScaled = true
+    Instance.new("UICorner", applyBtn).CornerRadius = UDim.new(0,5)
+    applyBtn.MouseButton1Click:Connect(function()
+        local val = tonumber(slider.Text)
+        if val then
+            fovValue = math.clamp(val, 10, 120)
+            Camera.FieldOfView = fovValue
+            label.Text = "FOV: " .. fovValue
+        end
+        customFOVActive = true
+        originalFOV = Camera.FieldOfView
+        setButtonActive(buttons.customFOV, true)
+        saveStates()
+        menu:Destroy()
+    end)
+
+    local cancelBtn = Instance.new("TextButton", frame)
+    cancelBtn.Size = UDim2.new(1, -10, 0, 30)
+    cancelBtn.Position = UDim2.new(0, 5, 0, 110)
+    cancelBtn.BackgroundColor3 = Color3.fromRGB(200,50,50)
+    cancelBtn.Text = "Cancel"
+    cancelBtn.TextColor3 = Color3.new(1,1,1)
+    cancelBtn.Font = Enum.Font.GothamBold
+    cancelBtn.TextScaled = true
+    Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0,5)
+    cancelBtn.MouseButton1Click:Connect(function() menu:Destroy() end)
+end
+
+local function toggleCustomFOV()
+    if customFOVActive then
+        Camera.FieldOfView = originalFOV
+        customFOVActive = false
+        setButtonActive(buttons.customFOV, false)
+        saveStates()
+    else
+        originalFOV = Camera.FieldOfView
+        showFOVMenu()
+    end
+end
+
+-- Black Man (с автовосстановлением при респе)
+local function enableBlackMan(character)
+    if not character then return end
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            blackManOriginalColors[part] = {Color = part.Color, Material = part.Material}
+            part.Color = Color3.new(0,0,0)
+            part.Material = Enum.Material.Neon
+        end
+    end
+end
+
+local function disableBlackMan(character)
+    if not character then return end
+    for part, data in pairs(blackManOriginalColors) do
+        if part and part.Parent then
+            part.Color = data.Color
+            part.Material = data.Material
+        end
+    end
+    blackManOriginalColors = {}
+end
+
+local function toggleBlackMan()
+    if blackManActive then
+        disableBlackMan(LocalPlayer.Character)
+        if blackManCharacterAddedConn then blackManCharacterAddedConn:Disconnect() end
+        blackManActive = false
+        setButtonActive(buttons.blackMan, false)
+    else
+        enableBlackMan(LocalPlayer.Character)
+        blackManCharacterAddedConn = LocalPlayer.CharacterAdded:Connect(function(c)
+            if blackManActive then
+                enableBlackMan(c)
+            end
+        end)
+        blackManActive = true
+        setButtonActive(buttons.blackMan, true)
+    end
+    saveStates()
+end
+
+-- Yuji Helper
+local function showYujiNotification(text)
+    local notif = Drawing.new("Text")
+    notif.Text = text
+    notif.Size = 30
+    notif.Color = Color3.fromRGB(255,255,255)
+    notif.Center = true
+    notif.Outline = true
+    notif.OutlineColor = Color3.new(0,0,0)
+    notif.Font = Drawing.Fonts.UI
+    notif.Visible = true
+    local viewport = Camera.ViewportSize
+    notif.Position = Vector2.new(viewport.X/2, viewport.Y/2 - 150)
+    task.wait(2)
+    notif:Remove()
+end
+
+local function onYujiKeyPress(input, gp)
+    if gp then return end
+    if not yujiHelperActive then return end
+    if input.KeyCode == Enum.KeyCode.One then
+        showYujiNotification("Проклятые Удары!")
+    elseif input.KeyCode == Enum.KeyCode.Two then
+        showYujiNotification("Дробительный удар!")
+    elseif input.KeyCode == Enum.KeyCode.Three then
+        showYujiNotification("Дивергентный кулак")
+    elseif input.KeyCode == Enum.KeyCode.Four then
+        showYujiNotification("Кик Манджи")
+    end
+end
+
+local function toggleYujiHelper()
+    if yujiHelperActive then
+        yujiHelperActive = false
+        if yujiHelperConnections then
+            for _, conn in ipairs(yujiHelperConnections) do
+                conn:Disconnect()
+            end
+            yujiHelperConnections = {}
+        end
+        setButtonActive(buttons.yujiHelper, false)
+    else
+        yujiHelperActive = true
+        table.insert(yujiHelperConnections, UserInputService.InputBegan:Connect(onYujiKeyPress))
+        setButtonActive(buttons.yujiHelper, true)
+    end
+    saveStates()
+end
+
+-- God (исправлена, с автовосстановлением при респе)
+local function enableGod()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum then return end
+    hum.MaxHealth = 999999
+    hum.Health = hum.MaxHealth
+    if godConnection then godConnection:Disconnect() end
+    godConnection = RunService.Heartbeat:Connect(function()
+        if not godActive then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChild("Humanoid")
+        if not hum then return end
+        hum.Health = hum.MaxHealth
+    end)
+end
+
+local function disableGod()
+    if godConnection then godConnection:Disconnect(); godConnection = nil end
+    if godCharacterAddedConn then godCharacterAddedConn:Disconnect() end
+end
+
+local function toggleGod()
+    if godActive then
+        godActive = false
+        disableGod()
+        setButtonActive(buttons.god, false)
+    else
+        godActive = true
+        enableGod()
+        godCharacterAddedConn = LocalPlayer.CharacterAdded:Connect(function()
+            if godActive then
+                enableGod()
+            end
+        end)
+        setButtonActive(buttons.god, true)
+    end
+    saveStates()
+end
+
+-- BHop (исправлен: теперь ускоряет при зажатом пробеле)
+local function enableBHop()
+    originalWalkSpeed = 16
+    bhopConnection = RunService.Heartbeat:Connect(function()
+        if not bhopActive then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChild("Humanoid")
+        if not hum then return end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            hum.WalkSpeed = bhopMaxSpeed
+        else
+            hum.WalkSpeed = originalWalkSpeed
+        end
+    end)
+end
+
+local function disableBHop()
+    if bhopConnection then bhopConnection:Disconnect(); bhopConnection = nil end
+    -- возвращаем нормальную скорость
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            hum.WalkSpeed = originalWalkSpeed
+        end
+    end
+end
+
+local function toggleBHop()
+    if bhopActive then
+        bhopActive = false
+        disableBHop()
+        setButtonActive(buttons.bhop, false)
+    else
+        bhopActive = true
+        enableBHop()
+        setButtonActive(buttons.bhop, true)
+    end
+    saveStates()
+end
+
+-- Spin (ускорен)
+local function enableSpin()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local bav = Instance.new("BodyAngularVelocity")
+    bav.AngularVelocity = Vector3.new(0, spinSpeed, 0)
+    bav.MaxTorque = Vector3.new(0, math.huge, 0)
+    bav.Parent = root
+    spinBodyAngular = bav
+end
+
+local function disableSpin()
+    if spinBodyAngular then spinBodyAngular:Destroy(); spinBodyAngular = nil end
+end
+
+local function toggleSpin()
+    if spinActive then
+        spinActive = false
+        disableSpin()
+        setButtonActive(buttons.spin, false)
+    else
+        spinActive = true
+        enableSpin()
+        setButtonActive(buttons.spin, true)
+    end
+    saveStates()
+end
+
+-- (Удалена виньетка по R)
+
+-- ------------------------------------------------------------
+-- Функции интерфейса (сворачивание, разворачивание)
+-- ------------------------------------------------------------
+local function minimize()
+    if isMinimized then return end
+    isMinimized = true
+    if mainWindow then mainWindow.Visible = false end
+    if panel then panel.Visible = false end
+    if bottomLabel then bottomLabel.Visible = false end
+end
+
+local function restore()
+    if not isMinimized then return end
+    isMinimized = false
+    if mainWindow then mainWindow.Visible = true end
+    if panel then panel.Visible = true end
+    if bottomLabel then bottomLabel.Visible = true end
+end
+
+-- ------------------------------------------------------------
+-- Создание элементов GUI
+-- ------------------------------------------------------------
+local function createWatermark()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "Watermark"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 10
+    gui.Parent = PlayerGui
+
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(0, WATERMARK_WIDTH, 0, WATERMARK_HEIGHT)
+    bg.Position = UDim2.new(0.5, -WATERMARK_WIDTH/2, 0, 10)
+    bg.BackgroundTransparency = 1
+    bg.BorderSizePixel = 0
+    bg.Parent = gui
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "JJS Utility  |  0ms  |  0 FPS"
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBlack
+    label.Parent = bg
+
+    task.spawn(function()
+        while gui and gui.Parent do
+            local ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
+            local fps = math.floor(1 / RunService.RenderStepped:Wait())
+            label.Text = string.format("JJS Utility  |  %dms  |  %d FPS", ping, fps)
+            task.wait(1)
+        end
+    end)
+
+    bg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            restore()
+        end
+    end)
+
+    return gui, bg
+end
+
+local function createMainWindow()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "ClickGUI"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 5
+    gui.Parent = PlayerGui
+
+    local window = Instance.new("Frame")
+    window.Size = UDim2.new(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    window.Position = UDim2.new(0.5, -WINDOW_WIDTH/2, 0.5, -WINDOW_HEIGHT/2)
+    window.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    window.BorderSizePixel = 0
+    window.Parent = gui
+    Instance.new("UICorner", window).CornerRadius = UDim.new(0, 15)
+
+    return gui, window
+end
+
+local function createBottomLabel()
+    local bottom = Instance.new("TextLabel")
+    bottom.Size = UDim2.new(0, 200, 0, 40)
+    bottom.Position = UDim2.new(0.5, -100, 0.5, WINDOW_HEIGHT/2 + 10)
+    bottom.BackgroundTransparency = 1
+    bottom.Text = "JJS Utility"
+    bottom.TextColor3 = Color3.new(1,1,1)
+    bottom.TextScaled = true
+    bottom.Font = Enum.Font.GothamBlack
+    bottom.Parent = menuGui
+
+    bottom.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            minimize()
+        end
+    end)
+
+    return bottom
+end
+
+local function createTabPanel()
+    local panelGui = Instance.new("ScreenGui")
+    panelGui.Name = "TabPanel"
+    panelGui.ResetOnSpawn = false
+    panelGui.DisplayOrder = 6
+    panelGui.Parent = PlayerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, PANEL_WIDTH, 0, PANEL_HEIGHT)
+    frame.Position = UDim2.new(0.5, -WINDOW_WIDTH/2 - PANEL_WIDTH - 10, 0.5, -PANEL_HEIGHT/2)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel = 0
+    frame.Parent = panelGui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+    local dragBar = Instance.new("Frame")
+    dragBar.Size = UDim2.new(1, 0, 0, 20)
+    dragBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    dragBar.BorderSizePixel = 0
+    dragBar.Parent = frame
+    Instance.new("UICorner", dragBar).CornerRadius = UDim.new(0, 12)
+
+    local tabsContainer = Instance.new("Frame")
+    tabsContainer.Size = UDim2.new(1, 0, 0, 5*40 + 4*5 + 5)
+    tabsContainer.Position = UDim2.new(0, 0, 0, 25)
+    tabsContainer.BackgroundTransparency = 1
+    tabsContainer.Parent = frame
+
+    local layout = Instance.new("UIListLayout", tabsContainer)
+    layout.Padding = UDim.new(0, 5)
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+    local function createTabEmoji(emoji)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 40, 0, 40)
+        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        btn.Text = emoji
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextScaled = true
+        btn.BorderSizePixel = 0
+        btn.Parent = tabsContainer
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+        return btn
+    end
+
+    local btnCombat = createTabEmoji("⚔️")
+    local btnVisuals = createTabEmoji("🌠")
+    local btnWorld = createTabEmoji("🌍")
+    local btnMisc = createTabEmoji("🌅")
+    local btnInfo = createTabEmoji("?")
+
+    return panelGui, frame, {btnCombat, btnVisuals, btnWorld, btnMisc, btnInfo}
+end
+
+-- ------------------------------------------------------------
+-- Создание контейнеров для вкладок внутри основного окна
+-- ------------------------------------------------------------
+local function createTabFrames(mainWindow)
+    local tabs = {}
+    local function makeFrame()
+        local frame = Instance.new("ScrollingFrame")
+        frame.Size = UDim2.new(1, -20, 1, -20)
+        frame.Position = UDim2.new(0, 10, 0, 10)
+        frame.BackgroundTransparency = 1
+        frame.BorderSizePixel = 0
+        frame.ScrollBarThickness = 6
+        frame.CanvasSize = UDim2.new(0,0,0,0)
+        local grid = Instance.new("UIGridLayout")
+        grid.FillDirection = Enum.FillDirection.Horizontal
+        grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        grid.VerticalAlignment = Enum.VerticalAlignment.Top
+        grid.CellSize = UDim2.new(0, (WINDOW_WIDTH - 60)/2, 0, 40)
+        grid.CellPadding = UDim2.new(0, 5, 0, 5)
+        grid.Parent = frame
+        return frame
+    end
+
+    tabs.combat = makeFrame()
+    tabs.visuals = makeFrame()
+    tabs.world = makeFrame()
+    tabs.misc = makeFrame()
+    tabs.info = makeFrame()
+
+    -- В info вставим текст
+    local infoContainer = tabs.info
+    for _, child in ipairs(infoContainer:GetChildren()) do
+        if child:IsA("UIGridLayout") then child:Destroy() end
+    end
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -10, 0, 50)
+    title.Position = UDim2.new(0, 5, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = "info"
+    title.TextColor3 = Color3.new(1,1,1)
+    title.TextScaled = true
+    title.Font = Enum.Font.GothamBlack
+    title.Parent = infoContainer
+
+    local desc = Instance.new("TextLabel")
+    desc.Size = UDim2.new(1, -10, 0, 200)
+    desc.Position = UDim2.new(0, 5, 0, 60)
+    desc.BackgroundTransparency = 1
+    desc.Text = "JJS Utility - это лучший скрипт, который можно назвать отдельным DLC, наверное :)\nНаш скрипт-клиент предлагает вам множество функций.\nЧтобы закрыть меню, нажмите на нижнюю надпись JJS Utility.\nДля открытия нажмите на watermark."
+    desc.TextColor3 = Color3.fromRGB(200,200,200)
+    desc.TextScaled = true
+    desc.Font = Enum.Font.Gotham
+    desc.TextWrapped = true
+    desc.Parent = infoContainer
+
+    infoContainer.CanvasSize = UDim2.new(0,0,0, title.AbsoluteSize.Y + desc.AbsoluteSize.Y + 20)
+
+    for _, frame in pairs(tabs) do
+        frame.Parent = mainWindow
+        frame.Visible = false
+    end
+
+    return tabs
+end
+
+-- ------------------------------------------------------------
+-- Добавление кнопок функций во вкладки
+-- ------------------------------------------------------------
+local function populateTabs(tabs)
+    local function createButton(text, func, container, funcName)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -10, 0, 40)
+        btn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        btn.Text = text
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextScaled = true
+        btn.Parent = container
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
+        btn.MouseButton1Click:Connect(func)
+        btn.MouseButton2Click:Connect(function() startBindingForFunction(func, btn, text) end)
+        buttons[funcName] = btn
+        return btn
+    end
+
+    -- Combat
+    createButton("TP Behind", tpBehind, tabs.combat, "tp")
+    createButton("Aimbot", toggleAimbot, tabs.combat, "aimbot")
+    createButton("God", toggleGod, tabs.combat, "god")
+    createButton("BHop", toggleBHop, tabs.combat, "bhop")
+    createButton("Spin", toggleSpin, tabs.combat, "spin")
+
+    -- Visuals
+    createButton("Nimb", toggleNimb, tabs.visuals, "nimb")
+    createButton("Crosshair", toggleCrosshair, tabs.visuals, "crosshair")
+    createButton("BF Notif", toggleBfNotif, tabs.visuals, "bfNotif")
+    createButton("custom m1", toggleCustomM1, tabs.visuals, "customM1")
+    createButton("Rainbow", toggleRainbowSky, tabs.visuals, "rainbowSky")
+
+    -- World
+    createButton("Atmosphere", toggleAtmosphere, tabs.world, "atmosphere")
+    createButton("Custom Fog", toggleCustomFog, tabs.world, "customFog")
+
+    -- Misc
+    createButton("Doza", toggleDoza, tabs.misc, "doza")
+    createButton("Baby", toggleBaby, tabs.misc, "baby")
+    createButton("Fly", toggleFly, tabs.misc, "fly")
+    createButton("Custom FOV", toggleCustomFOV, tabs.misc, "customFOV")
+    createButton("Black Man", toggleBlackMan, tabs.misc, "blackMan")
+    createButton("Yuji Helper", toggleYujiHelper, tabs.misc, "yujiHelper")
+
+    local function updateCanvas(frame)
+        local totalHeight = 0
+        for _, child in ipairs(frame:GetChildren()) do
+            if child:IsA("TextButton") then
+                totalHeight = totalHeight + child.AbsoluteSize.Y + 5
+            end
+        end
+        frame.CanvasSize = UDim2.new(0,0,0,totalHeight)
+    end
+
+    updateCanvas(tabs.combat)
+    updateCanvas(tabs.visuals)
+    updateCanvas(tabs.world)
+    updateCanvas(tabs.misc)
+end
+
+-- ------------------------------------------------------------
+-- Приветственное сообщение по центру (без фона, крупный текст)
+-- ------------------------------------------------------------
+local function showWelcomeMessage()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "WelcomeMessage"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 100
+    gui.Parent = PlayerGui
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 400, 0, 100)
+    label.Position = UDim2.new(0.5, -200, 0.5, -50)
+    label.BackgroundTransparency = 1
+    label.Text = "by muqo666"
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBlack
+    label.Parent = gui
+
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://9120387848"
+    sound.Volume = 0.5
+    sound.Parent = gui
+    sound:Play()
+
+    task.wait(3)
+    gui:Destroy()
+end
+
+-- ------------------------------------------------------------
+-- Сборка UI и загрузка сохранённых состояний
+-- ------------------------------------------------------------
+local function buildUI()
+    -- Водяной знак
+    watermark, _ = createWatermark()
+
+    -- Главное окно
+    local mainGui, window = createMainWindow()
+    menuGui = mainGui
+    mainWindow = window
+
+    -- Нижняя надпись
+    bottomLabel = createBottomLabel()
+
+    -- Панель вкладок
+    local panelGui, panelFrame, tabButtons = createTabPanel()
+    panel = panelFrame
+
+    -- Контейнеры вкладок внутри окна
+    local tabs = createTabFrames(mainWindow)
+
+    -- Заполняем кнопками
+    populateTabs(tabs)
+
+    -- Делаем первую вкладку видимой
+    tabs.combat.Visible = true
+    tabButtons[1].BackgroundColor3 = Color3.fromRGB(80,80,80)
+
+    local function switchTab(index)
+        for i, btn in ipairs(tabButtons) do
+            btn.BackgroundColor3 = (i == index) and Color3.fromRGB(80,80,80) or Color3.fromRGB(60,60,60)
+        end
+        local frames = {tabs.combat, tabs.visuals, tabs.world, tabs.misc, tabs.info}
+        for i, frame in ipairs(frames) do
+            frame.Visible = (i == index)
+        end
+    end
+
+    for i, btn in ipairs(tabButtons) do
+        btn.MouseButton1Click:Connect(function() switchTab(i) end)
+    end
+
+    -- Перетаскивание панели
+    local dragging = false
+    local dragStart, startPos, dragInput
+
+    local function updateDrag(input)
+        local delta = input.Position - dragStart
+        local newX = startPos.X.Offset + delta.X
+        local viewport = Camera.ViewportSize
+        newX = math.clamp(newX, 10, viewport.X - PANEL_WIDTH - 10)
+        panelFrame.Position = UDim2.new(0, newX, startPos.Y.Scale, startPos.Y.Offset)
+    end
+
+    local function finalizeDrag()
+        local currentX = panelFrame.Position.X.Offset
+        local windowLeft = (Camera.ViewportSize.X - WINDOW_WIDTH)/2
+        local windowRight = windowLeft + WINDOW_WIDTH
+        local leftTarget = windowLeft - PANEL_WIDTH - 10
+        local rightTarget = windowRight + 10
+        local distToLeft = math.abs(currentX - leftTarget)
+        local distToRight = math.abs(currentX - rightTarget)
+        if distToLeft < distToRight then
+            panelFrame.Position = UDim2.new(0, leftTarget, panelFrame.Position.Y.Scale, panelFrame.Position.Y.Offset)
+        else
+            panelFrame.Position = UDim2.new(0, rightTarget, panelFrame.Position.Y.Scale, panelFrame.Position.Y.Offset)
+        end
+    end
+
+    local dragBar = panelFrame:FindFirstChildOfClass("Frame")
+    dragBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = panelFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    finalizeDrag()
+                end
+            end)
+        end
+    end)
+
+    dragBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            updateDrag(input)
+        end
+    end)
+
+    -- Запуск обновления custom M1 кругов
+    RunService.RenderStepped:Connect(function()
+        if customM1Active then
+            updateCustomM1Circles()
+        end
+    end)
+
+    -- Постоянный контроль FOV, если активен Custom FOV
+    RunService.RenderStepped:Connect(function()
+        if customFOVActive then
+            Camera.FieldOfView = fovValue
+        end
+    end)
+
+    -- Загружаем сохранённые состояния
+    local states = loadStates()
+    if states.doza then toggleDoza() end
+    if states.atmosphere then toggleAtmosphere() end
+    if states.rainbowSky then toggleRainbowSky() end
+    if states.nimb then toggleNimb() end
+    if states.customFog then toggleCustomFog() end
+    if states.customM1 then toggleCustomM1() end
+    if states.aimbot then toggleAimbot() end
+    if states.crosshair then toggleCrosshair() end
+    if states.bfNotif then toggleBfNotif() end
+    if states.baby then toggleBaby() end
+    if states.fly then toggleFly() end
+    if states.customFOV then toggleCustomFOV() end
+    if states.blackMan then toggleBlackMan() end
+    if states.yujiHelper then toggleYujiHelper() end
+    if states.god then toggleGod() end
+    if states.bhop then toggleBHop() end
+    if states.spin then toggleSpin() end
+    if states.fovValue then
+        fovValue = states.fovValue
+        if not customFOVActive then
+            Camera.FieldOfView = fovValue
+        end
+    end
+    if states.fogColorName then
+        fogColorName = states.fogColorName
+        if fogColorName and fogColorOptions[fogColorName] then
+            Lighting.FogColor = fogColorOptions[fogColorName]
+            Lighting.FogEnd = 300
+        end
+    end
+    -- Восстанавливаем бинды
+    if states.bindings then
+        local funcMap = {
+            tp = tpBehind,
+            aimbot = toggleAimbot,
+            god = toggleGod,
+            bhop = toggleBHop,
+            spin = toggleSpin,
+            nimb = toggleNimb,
+            crosshair = toggleCrosshair,
+            bfNotif = toggleBfNotif,
+            customM1 = toggleCustomM1,
+            rainbowSky = toggleRainbowSky,
+            atmosphere = toggleAtmosphere,
+            customFog = toggleCustomFog,
+            doza = toggleDoza,
+            baby = toggleBaby,
+            fly = toggleFly,
+            customFOV = toggleCustomFOV,
+            blackMan = toggleBlackMan,
+            yujiHelper = toggleYujiHelper
+        }
+        for funcName, keyName in pairs(states.bindings) do
+            local keyCode = Enum.KeyCode[keyName]
+            if keyCode and funcMap[funcName] then
+                local func = funcMap[funcName]
+                bindings[keyCode] = func
+                bindingFuncs[func] = keyCode
+                local btn = buttons[funcName]
+                if btn then
+                    updateButtonText(btn, btn.Text:match("^(.-)%s*%[.*%]?$") or btn.Text, func)
+                end
+            end
+        end
+    end
+
+    -- Сворачиваем меню при старте
+    minimize()
+
+    -- Показываем приветственное сообщение
+    showWelcomeMessage()
+end
+
+-- ------------------------------------------------------------
+-- Глобальный ввод (бинды и открытие/закрытие меню)
+-- ------------------------------------------------------------
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if isBinding then
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            local key = input.KeyCode
+            if key ~= Enum.KeyCode.Unknown then
+                local old = bindingFuncs[bindingFunc]
+                if old then bindings[old] = nil; bindingFuncs[bindingFunc] = nil end
+                bindings[key] = bindingFunc
+                bindingFuncs[bindingFunc] = key
+                if bindingButton and bindingBaseText then
+                    updateButtonText(bindingButton, bindingBaseText, bindingFunc)
+                end
+                hideBindingPrompt()
+                isBinding = false
+                bindingFunc, bindingButton, bindingBaseText = nil, nil, nil
+                saveStates()
+            end
+        end
+        return
+    end
+    if bindings[input.KeyCode] then
+        bindings[input.KeyCode]()
+    end
+    if input.KeyCode == Enum.KeyCode.P then
+        if isMinimized then
+            restore()
+        else
+            minimize()
+        end
+    end
+end)
+
+-- Запуск
+buildUI()
