@@ -1,1 +1,285 @@
+-- Загружаем сервисы
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
 
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Переменные состояния
+local isMinimized = false
+local menuGui = nil
+local mainWindow = nil
+local panel = nil
+local watermark = nil
+local bottomLabel = nil
+
+-- Константы
+local PANEL_WIDTH = 200
+local PANEL_HEIGHT = 300
+local WINDOW_WIDTH = 650
+local WINDOW_HEIGHT = 500
+local WATERMARK_WIDTH = 280
+local WATERMARK_HEIGHT = 40
+
+-- Функция сворачивания
+local function minimize()
+    if isMinimized then return end
+    isMinimized = true
+    if mainWindow then mainWindow.Visible = false end
+    if panel then panel.Visible = false end
+    if bottomLabel then bottomLabel.Visible = false end
+end
+
+-- Функция разворачивания
+local function restore()
+    if not isMinimized then return end
+    isMinimized = false
+    if mainWindow then mainWindow.Visible = true end
+    if panel then panel.Visible = true end
+    if bottomLabel then bottomLabel.Visible = true end
+end
+
+-- Создание водяного знака
+local function createWatermark()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "Watermark"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 10
+    gui.Parent = PlayerGui
+
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(0, WATERMARK_WIDTH, 0, WATERMARK_HEIGHT)
+    bg.Position = UDim2.new(0.5, -WATERMARK_WIDTH/2, 0, 10)
+    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    bg.BackgroundTransparency = 0
+    bg.BorderSizePixel = 0
+    bg.Parent = gui
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 8)
+
+    -- Одна строка с жирным шрифтом
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "JJS Utility   |   Ping: 0ms   |   FPS: 0"
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBlack  -- жирный шрифт
+    label.Parent = bg
+
+    -- Обновление пинга и FPS
+    task.spawn(function()
+        while gui and gui.Parent do
+            local ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
+            local fps = math.floor(1 / RunService.RenderStepped:Wait())
+            label.Text = string.format("JJS Utility   |   Ping: %dms   |   FPS: %d", ping, fps)
+            task.wait(1)
+        end
+    end)
+
+    -- Клик по водяному знаку разворачивает меню
+    bg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            restore()
+        end
+    end)
+
+    return gui, bg
+end
+
+-- Создание основного окна и нижней надписи
+local function createMainWindow()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "ClickGUI"
+    gui.ResetOnSpawn = false
+    gui.DisplayOrder = 5
+    gui.Parent = PlayerGui
+
+    local window = Instance.new("Frame")
+    window.Size = UDim2.new(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT)
+    window.Position = UDim2.new(0.5, -WINDOW_WIDTH/2, 0.5, -WINDOW_HEIGHT/2)
+    window.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    window.BorderSizePixel = 0
+    window.Parent = gui
+    Instance.new("UICorner", window).CornerRadius = UDim.new(0, 15)
+
+    local bottom = Instance.new("TextLabel")
+    bottom.Size = UDim2.new(0, 200, 0, 40)
+    bottom.Position = UDim2.new(0.5, -100, 0.5, WINDOW_HEIGHT/2 + 10)
+    bottom.BackgroundTransparency = 1
+    bottom.Text = "JJS Utility"
+    bottom.TextColor3 = Color3.new(1,1,1)
+    bottom.TextScaled = true
+    bottom.Font = Enum.Font.GothamBlack
+    bottom.Parent = gui
+
+    bottom.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            minimize()
+        end
+    end)
+
+    return gui, window, bottom
+end
+
+-- Создание перемещаемой панели с вкладками (квадратные кнопки с эмодзи)
+local function createPanel()
+    local panelGui = Instance.new("ScreenGui")
+    panelGui.Name = "TabPanel"
+    panelGui.ResetOnSpawn = false
+    panelGui.DisplayOrder = 6
+    panelGui.Parent = PlayerGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, PANEL_WIDTH, 0, PANEL_HEIGHT)
+    frame.Position = UDim2.new(0.5, -WINDOW_WIDTH/2 - PANEL_WIDTH - 10, 0.5, -PANEL_HEIGHT/2)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel = 0
+    frame.Parent = panelGui
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+    -- Заголовок для перетаскивания (без надписи)
+    local dragBar = Instance.new("Frame")
+    dragBar.Size = UDim2.new(1, 0, 0, 20)
+    dragBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    dragBar.BorderSizePixel = 0
+    dragBar.Parent = frame
+    Instance.new("UICorner", dragBar).CornerRadius = UDim.new(0, 12)
+
+    -- Контейнер для кнопок вкладок (вертикально)
+    local tabsContainer = Instance.new("Frame")
+    tabsContainer.Size = UDim2.new(1, 0, 0, 100)
+    tabsContainer.Position = UDim2.new(0, 0, 0, 25)
+    tabsContainer.BackgroundTransparency = 1
+    tabsContainer.Parent = frame
+
+    local layout = Instance.new("UIListLayout", tabsContainer)
+    layout.Padding = UDim.new(0, 5)
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+    -- Функция создания квадратной кнопки с эмодзи
+    local function createTabEmoji(emoji)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 40, 0, 40)  -- квадратная
+        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        btn.Text = emoji
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextScaled = true
+        btn.BorderSizePixel = 0
+        btn.Parent = tabsContainer
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+        return btn
+    end
+
+    -- Создаём кнопки с эмодзи
+    local combatBtn = createTabEmoji("⚔️")   -- мечи для Combat
+    local visualsBtn = createTabEmoji("🌠")  -- звёздочка для Visuals
+
+    -- Контейнеры для контента
+    local contentCombat = Instance.new("ScrollingFrame")
+    contentCombat.Size = UDim2.new(1, 0, 1, -130)
+    contentCombat.Position = UDim2.new(0, 0, 0, 130)
+    contentCombat.BackgroundTransparency = 1
+    contentCombat.BorderSizePixel = 0
+    contentCombat.ScrollBarThickness = 6
+    contentCombat.CanvasSize = UDim2.new(0,0,0,0)
+    contentCombat.Parent = frame
+    contentCombat.Visible = true
+
+    local contentVisuals = Instance.new("ScrollingFrame")
+    contentVisuals.Size = UDim2.new(1, 0, 1, -130)
+    contentVisuals.Position = UDim2.new(0, 0, 0, 130)
+    contentVisuals.BackgroundTransparency = 1
+    contentVisuals.BorderSizePixel = 0
+    contentVisuals.ScrollBarThickness = 6
+    contentVisuals.CanvasSize = UDim2.new(0,0,0,0)
+    contentVisuals.Parent = frame
+    contentVisuals.Visible = false
+
+    -- Логика переключения
+    combatBtn.MouseButton1Click:Connect(function()
+        combatBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+        visualsBtn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        contentCombat.Visible = true
+        contentVisuals.Visible = false
+    end)
+
+    visualsBtn.MouseButton1Click:Connect(function()
+        combatBtn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+        visualsBtn.BackgroundColor3 = Color3.fromRGB(80,80,80)
+        contentCombat.Visible = false
+        contentVisuals.Visible = true
+    end)
+
+    -- Перетаскивание панели
+    local dragging = false
+    local dragStart, startPos, dragInput
+
+    local function updateDrag(input)
+        local delta = input.Position - dragStart
+        local newX = startPos.X.Offset + delta.X
+        local viewport = Camera.ViewportSize
+        newX = math.clamp(newX, 10, viewport.X - PANEL_WIDTH - 10)
+        frame.Position = UDim2.new(0, newX, startPos.Y.Scale, startPos.Y.Offset)
+    end
+
+    local function finalizeDrag()
+        local currentX = frame.Position.X.Offset
+        local windowLeft = (Camera.ViewportSize.X - WINDOW_WIDTH)/2
+        local windowRight = windowLeft + WINDOW_WIDTH
+        local leftTarget = windowLeft - PANEL_WIDTH - 10
+        local rightTarget = windowRight + 10
+        local distToLeft = math.abs(currentX - leftTarget)
+        local distToRight = math.abs(currentX - rightTarget)
+        if distToLeft < distToRight then
+            frame.Position = UDim2.new(0, leftTarget, frame.Position.Y.Scale, frame.Position.Y.Offset)
+        else
+            frame.Position = UDim2.new(0, rightTarget, frame.Position.Y.Scale, frame.Position.Y.Offset)
+        end
+    end
+
+    dragBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    finalizeDrag()
+                end
+            end)
+        end
+    end)
+
+    dragBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            updateDrag(input)
+        end
+    end)
+
+    return panelGui, frame
+end
+
+-- Сборка UI
+local function buildUI()
+    watermark, _ = createWatermark()
+    local mainGui, window, bottom = createMainWindow()
+    menuGui = mainGui
+    mainWindow = window
+    bottomLabel = bottom
+    local panelGui, panelFrame = createPanel()
+    panel = panelFrame
+end
+
+-- Запуск
+buildUI()
